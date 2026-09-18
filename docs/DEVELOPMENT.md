@@ -1,0 +1,107 @@
+# 开发记录（阶段 0–5）
+
+> 本文件是插件的开发过程记录，面向贡献者与接手者。
+>
+> - 用户文档：[README.md](../README.md)
+> - 开工入口（已验事实、数据源地图、调试命令、启动提示词）：[HANDOFF.md](HANDOFF.md)
+> - 验证证据与可复现脚本：[verification/](verification/)
+
+## 项目状态
+
+**external-agents-extend**（2026-09-17 由暂名 `agent-log` 更名）——让用户能在 dim 里查看由 dim 后台拉起的外部 agent（kimi / cursor / codex / grok / opencode / zcode）委托任务的执行日志：运行状态、工具调用序列、中间输出、失败原因。
+
+- 状态：**✅ 全部 6 个阶段完成**（阶段 0–5：技术验证 → 核心数据层 → MCP 工具层 → Widget → CLI/Skill → 验收分发）；真实数据验收通过（11 任务样本矩阵 / 运行中近实时 / 边界场景）；证据 `docs/verification/`
+- 2026-09-18 增补：Widget 视觉系统重构（设计变量 + 深浅双主题 + 进入/展开动效）、时间戳默认可见、cursor `<timestamp>` 解析（用户消息真实时间）、工具调用摘要改为展示真实参数；测试 90 项全绿
+- 可行性：已验证（2026-09-17，本机实测）；事后与近实时（2s 轮询）可行，完全流式不在范围
+- 里程碑：M1 工具层可用 → M2 Widget 面板可用 → M3 完整交付
+
+## 阶段 0 结论（2026-09-17）
+
+完整记录与可复现脚本见 [docs/verification/2026-09-17-stage0/RESULTS.md](verification/2026-09-17-stage0/RESULTS.md)。
+
+- **T0.1 骨架冒烟 ✅**：仓库根即插件根；`~/.agents/plugins/external-agents-extend` 软链接指向本仓库后，dim 可发现并加载（`dim exec` 新会话调用 `external-agents-extend__hello` 工具成功）。
+- **T0.2 SQLite 方案 ✅**：`node:sqlite` + `readOnly:true` 直读、零第三方依赖；活跃 WAL 库可并发只读；损坏/非数据库文件在**查询时**才报错 → 适配器必须在查询层 try/catch。
+- **T0.3 MCP App 冒烟 ✅**：server 端 ✅（`open_agent_run_log` + `ui://` 资源已注册、dim 链路验证不崩）；桌面端渲染 ✅（2026-09-17 实测，fullscreen 面板正常显示）——**关键**：widget 必须实现 `ui/initialize` 握手（protocolVersion `2026-01-26`），否则宿主 iframe 保持透明、面板静默空白。
+- 开发注意：`dim mcp test` 的 `tools` 字段在 dimcode 0.5.5 恒为空（对照已正常工作的 server 亦然），连通性判定以 `success:true` 为准；仓库作为工作区时根 `.mcp.json` 会重复加载为 project 级工具（开发期现象，不影响分发）。
+
+## 阶段 1 结论（2026-09-17）
+
+完整记录见 [docs/verification/2026-09-17-stage1/RESULTS.md](verification/2026-09-17-stage1/RESULTS.md)。
+
+- **核心数据层完成**：`server/src/core/`（统一事件模型 / runs / 任务↔会话映射 + kimi・cursor・codex 三适配器），零第三方依赖，49 项测试全绿（`mise exec -- node --test`）。
+- **并行任务消歧**：纯时间戳在并行任务下会配对颠倒（实测两个会话创建仅差 1ms）→ 用 Issue ID token 与会话文本交叉消歧；HANDOFF 2.3 的两个样本已修正。
+- **cursor 顺序恢复**：`store.db` 消息顺序可完整恢复（`meta` → 快照 protobuf field#1），全量 7682 条 tool_result 因果校验通过。
+- **增量读语义**：kimi/codex 用字节 offset（半行不推进）、cursor 用内容寻址 id；越界/失效 cursor 复位并显式警告。
+
+## 阶段 2 结论（2026-09-17）
+
+完整记录见 [docs/verification/2026-09-17-stage2/RESULTS.md](verification/2026-09-17-stage2/RESULTS.md)。
+
+- **两个数据工具就绪**：`list_agent_runs`（任务列表，默认 20 条）与 `read_agent_run`（事件分页 + 游标，默认 100 条/页）；58 项测试全绿。
+- **四类语义**：task_not_found / no_log / degraded / running 均为可解释状态（isError=false），系统故障（db_unavailable）才标 isError。
+- **验收**：CLI 新会话实测——模型实际调用两个工具后，能准确回答任务背景、状态与继续阅读方式。
+
+## 阶段 3 结论（2026-09-17）
+
+完整记录见 [docs/verification/2026-09-17-stage3/RESULTS.md](verification/2026-09-17-stage3/RESULTS.md)。
+
+- **Widget 日志查看器就绪**：打开面板即见任务列表 + 事件流；运行中任务每 2s 增量追加、历史读尽自动停止；超长文本折叠、错误高亮、空态/错误态齐备。
+- **会话内联卡片（2026-09-17 增强）**：`show_external_agents` 在会话时间线显示「外部 Agent」卡片（每 5s 刷新），**点击任一 Agent** 即请求切全屏并直达该任务的实时日志（inline → fullscreen 同实例切换）。
+- **自动检测（2026-09-17 增强）**：插件 `UserPromptSubmit` hook 每轮静默注入运行中外部 Agent 摘要（无任务零输出、异常静默）；`Stop` hook 在**新任务启动后的回合末尾**阻止结束并让模型补一轮**自动展示状态卡片**（10 分钟窗口 + 每任务只提醒一次 + `stop_hook_active` 防循环）。CLI 端到端实测：派活后模型自动调用 `show_external_agents` 并展示卡片。
+- **widget 数据通道打通**：widget 经 `tools/call` 通道直接调用数据工具（工具已加 `visibility: ['model','app']`），无需模型中转。
+- **安全**：全部 textContent 渲染（零 innerHTML）；资源全内联、CSP 无外部域。
+- **桌面端实测通过**（2026-09-17 14:13）；另记录一处启动竞态：重启后需等 ~20 秒再开新会话（详见 HANDOFF 2.4）。
+
+## 阶段 4 结论（2026-09-17）
+
+完整记录见 [docs/verification/2026-09-17-stage4/RESULTS.md](verification/2026-09-17-stage4/RESULTS.md)。
+
+- **CLI 就绪**：`dim-external-agents-extend list / show / tail`（复用四类语义；`--json` 供脚本消费；纯本机零依赖）；`validate_plugin` 通过。
+- **插件 skill 就绪**：`skills/external-agents-extend/SKILL.md` 描述使用时机与工具用法；CLI 会话实测已被加载。
+- **过程中修复两个真实 bug**：`tail` 对 `db_unavailable` 无处理导致死循环（已修 + 加入测试）；测试 fixture 的 db 路径语义修正。
+
+## 阶段 5 结论（2026-09-17）
+
+完整记录见 [docs/verification/2026-09-17-stage5/RESULTS.md](verification/2026-09-17-stage5/RESULTS.md)。
+
+- **样本对照**：11 任务 × 3 agent 全部 mapping 正确、tool_call/tool_result 完整配对、零格式降级。
+- **运行中近实时**：真实运行中 cursor 任务观测——事件单调增长（171→181→193）、seq 连续不丢不重、2s 粒度可见最新活动。
+- **边界**：空日志 / 格式漂移（4 类异常显式降级）/ 10.1MB kimi（35ms）与 599.6MB codex（15ms）/ 并发只读 20/20。
+- **打包**：`validate_plugin` 通过；git URL 分发安装实测通过（2026-09-17）：安装结构完整、`dim mcp test plugin:external-agents-extend/external-agents-extend` → `success:true`、`validate_plugin.py` 通过；同名插件已存在时会明确拒绝（防重复）。
+
+## 分发实测记录
+
+- 安装到 `<DIMCODE_HOME>/plugins/` 并记录 `resolvedRevision`；安装/卸载：删除 `<DIMCODE_HOME>/plugins/external-agents-extend` 目录即可。
+- **本地开发**：`~/.agents/plugins/external-agents-extend` 软链接指向本仓库（保持单一真实来源）；改动后需重启桌面端生效（注意重启存在启动竞态：等 ~20 秒再开新会话，见 HANDOFF 2.4）。
+- **形态**：开发版本（插件版本号 0.1.0，**尚未打 tag**）；零第三方依赖、无构建步骤、资源全内联（无外部域）。
+
+## 开工入口
+
+接手者（人或 Agent）先读 [docs/HANDOFF.md](HANDOFF.md)：含已验事实、数据源地图、6 阶段任务清单、开工指引与调试命令。**读完即可开工，无需重新调研。**
+
+新会话可直接使用交接文档第 6 节的「启动提示词」。
+
+## 仓库结构
+
+```
+dim-external-agents-extend/
+  README.md
+  LICENSE                    # MIT
+  docs/HANDOFF.md            # 交接文档（开工入口）
+  docs/DEVELOPMENT.md        # 本文件：阶段 0–5 开发记录
+  docs/verification/         # 验证记录（阶段 0–5 全部入库）
+  docs/images/               # README 界面截图
+  .codex-plugin/plugin.json  # 插件清单 ✅
+  .mcp.json                  # MCP server 声明 ✅（stdio → server/src/index.js）
+  server/src/index.js        # MCP server（协议泵 + 冒烟工具 + 数据工具注册）✅
+  server/src/tools.js        # MCP 数据工具 ✅（阶段 2）：list_agent_runs / read_agent_run + 四类语义
+  server/src/cli.js          # CLI 实现 ✅（阶段 4）：list / show / tail
+  server/src/core/           # 核心数据层 ✅（阶段 1）：events / runs / mapping + adapters/{kimi,cursor,codex}
+  server/src/widget/log.html # MCP App widget ✅（阶段 3，2026-09-18 视觉重构）：日志查看器（任务列表 + 事件流 + 2s 轮询）
+  server/test/               # node:test 测试 ✅（90 项；含 widget harness 与 CLI）
+  bin/dim-external-agents-extend  # CLI ✅（阶段 4）：list / show / tail → server/src/cli.js
+  skills/external-agents-extend/  # 插件 skill ✅（阶段 4）：SKILL.md（使用时机与工具用法）
+  hooks/                     # 自动状态检测（UserPromptSubmit / Stop）✅
+  scripts/build-logos.js     # 从本机应用提取 agent 图标（macOS sips）✅
+  mise.toml                  # 开发环境固定（node 24.18.0）
+```

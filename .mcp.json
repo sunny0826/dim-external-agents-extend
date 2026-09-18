@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "external-agents-extend": {
+      "command": "node",
+      "args": ["./server/src/index.js"]
+    }
+  }
+}

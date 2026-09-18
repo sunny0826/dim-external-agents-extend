@@ -1,0 +1,1283 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>external-agents-extend 日志</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    /* ===== 设计变量 · 浅色（Soft Structuralism） ===== */
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --sans: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --bg: #f6f6f7;
+    --glass: rgba(255, 255, 255, 0.62);
+    --glass-strong: rgba(255, 255, 255, 0.82);
+    --core: rgba(255, 255, 255, 0.92);
+    --core-hover: #ffffff;
+    --shell: rgba(20, 20, 26, 0.04);
+    --shell-hover: rgba(20, 20, 26, 0.07);
+    --hairline: rgba(20, 20, 26, 0.09);
+    --hairline-strong: rgba(20, 20, 26, 0.18);
+    --text-1: #16161a;
+    --text-2: rgba(22, 22, 26, 0.62);
+    --text-3: rgba(22, 22, 26, 0.55);
+    --accent: #6b5cff;
+    --accent-ink: #5748e8;
+    --accent-soft: rgba(107, 92, 255, 0.10);
+    --accent-ring: rgba(107, 92, 255, 0.30);
+    --tool: #0b74d1;
+    --tool-soft: rgba(11, 116, 209, 0.07);
+    --ok: #0f7a49;
+    --ok-soft: rgba(23, 147, 90, 0.08);
+    --warn: #8a5a00;
+    --warn-soft: rgba(196, 127, 0, 0.10);
+    --err: #c62828;
+    --err-soft: rgba(220, 61, 67, 0.08);
+    --err-ring: rgba(198, 40, 40, 0.22);
+    --shadow: 0 1px 2px rgba(16, 16, 22, 0.03), 0 8px 20px -14px rgba(16, 16, 22, 0.14);
+    --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+    --glow-1: rgba(107, 92, 255, 0.10);
+    --glow-2: rgba(32, 201, 151, 0.09);
+    --scroll-thumb: rgba(20, 20, 26, 0.16);
+    --scroll-thumb-hover: rgba(20, 20, 26, 0.30);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      /* ===== 深色（Ethereal Glass） ===== */
+      --bg: #050507;
+      --glass: rgba(20, 20, 26, 0.58);
+      --glass-strong: rgba(14, 14, 18, 0.82);
+      --core: rgba(255, 255, 255, 0.035);
+      --core-hover: rgba(255, 255, 255, 0.065);
+      --shell: rgba(255, 255, 255, 0.022);
+      --shell-hover: rgba(255, 255, 255, 0.05);
+      --hairline: rgba(255, 255, 255, 0.08);
+      --hairline-strong: rgba(255, 255, 255, 0.18);
+      --text-1: #f2f2f5;
+      --text-2: rgba(235, 235, 245, 0.60);
+      --text-3: rgba(235, 235, 245, 0.45);
+      --accent: #a99bff;
+      --accent-ink: #beb4ff;
+      --accent-soft: rgba(154, 140, 255, 0.12);
+      --accent-ring: rgba(169, 155, 255, 0.34);
+      --tool: #6cb8ff;
+      --tool-soft: rgba(108, 184, 255, 0.08);
+      --ok: #45d48a;
+      --ok-soft: rgba(69, 212, 138, 0.08);
+      --warn: #ffc24d;
+      --warn-soft: rgba(255, 194, 77, 0.10);
+      --err: #ff7b72;
+      --err-soft: rgba(255, 123, 114, 0.09);
+      --err-ring: rgba(255, 123, 114, 0.26);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -20px rgba(0, 0, 0, 0.65);
+      --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+      --glow-1: rgba(124, 106, 255, 0.17);
+      --glow-2: rgba(45, 212, 160, 0.11);
+      --scroll-thumb: rgba(255, 255, 255, 0.14);
+      --scroll-thumb-hover: rgba(255, 255, 255, 0.28);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 13px/1.55 var(--sans);
+    letter-spacing: -0.006em;
+    color: var(--text-1); background: var(--bg);
+    display: flex; flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 环境光：固定装饰层，不参与滚动、不接收事件 */
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(620px 320px at 14% -8%, var(--glow-1), transparent 70%),
+      radial-gradient(680px 400px at 96% 110%, var(--glow-2), transparent 72%);
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb); border-radius: 999px;
+    border: 3px solid transparent; background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); background-clip: content-box; }
+  @keyframes breathe { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.72); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes unfold { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001s !important; transition-duration: 0.001s !important; }
+  }
+  /* ===== 浮动玻璃岛 header ===== */
+  header {
+    position: relative; z-index: 3;
+    display: flex; align-items: center; gap: 8px;
+    margin: 12px 14px 0; padding: 7px 10px 7px 14px;
+    border-radius: 16px;
+    background: var(--glass);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow), var(--inset-hi);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    flex: 0 0 auto;
+  }
+  header h1 { font-size: 13.5px; margin: 0; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap; }
+  header .spacer { flex: 1; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); display: inline-block; flex: 0 0 auto; }
+  .status-dot.ok { background: var(--ok); }
+  .status-dot.running { background: var(--warn); animation: breathe 1.9s var(--ease) infinite; }
+  .status-dot.error { background: var(--err); }
+  #statusText { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  label.follow, label.scope {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 11px; color: var(--text-2); white-space: nowrap; cursor: pointer;
+    padding: 4px 9px; border-radius: 999px;
+    transition: background-color 0.3s var(--ease), color 0.3s var(--ease);
+  }
+  label.follow:hover, label.scope:hover { background: var(--shell-hover); color: var(--text-1); }
+  label.follow input, label.scope input {
+    appearance: none; -webkit-appearance: none; margin: 0; flex: 0 0 auto;
+    width: 26px; height: 15px; border-radius: 999px; position: relative; cursor: pointer;
+    background: var(--hairline-strong);
+    transition: background-color 0.35s var(--ease);
+  }
+  label.follow input::after, label.scope input::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+    transition: transform 0.35s var(--ease);
+  }
+  label.follow input:checked, label.scope input:checked { background: var(--accent); }
+  label.follow input:checked::after, label.scope input:checked::after { transform: translateX(11px); }
+  button.back, button.refresh {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: inherit; font-size: 11.5px; font-weight: 550;
+    padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--hairline); background: var(--core);
+    color: var(--text-2); cursor: pointer; white-space: nowrap;
+    transition: background-color 0.3s var(--ease), color 0.3s var(--ease), border-color 0.3s var(--ease), transform 0.3s var(--ease);
+  }
+  button.back:hover, button.refresh:hover { background: var(--core-hover); color: var(--text-1); border-color: var(--hairline-strong); }
+  button.back:active, button.refresh:active { transform: scale(0.95); }
+  button.back svg, button.refresh svg {
+    width: 12px; height: 12px; flex: 0 0 auto;
+    transition: transform 0.5s var(--ease);
+  }
+  button.refresh:hover svg { transform: rotate(90deg); }
+  button.back:hover svg { transform: translateX(-1px); }
+  main { flex: 1; display: flex; min-height: 0; position: relative; z-index: 1; }
+  aside {
+    width: 344px; flex: 0 0 auto; min-height: 0; overflow-y: auto;
+    padding: 14px 12px 26px;
+    display: flex; flex-direction: column; gap: 7px;
+    border-right: 1px solid var(--hairline);
+  }
+  @media (max-width: 640px) {
+    main { flex-direction: column; }
+    aside { width: auto; height: 42%; border-right: none; border-bottom: 1px solid var(--hairline); }
+    header { flex-wrap: wrap; }
+  }
+  /* ===== 任务条目：双层（外壳 + 内芯） ===== */
+  .run {
+    position: relative; flex: 0 0 auto;
+    padding: 4px; border-radius: 18px;
+    background: var(--shell); border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform 0.45s var(--ease), background-color 0.45s var(--ease), border-color 0.45s var(--ease);
+  }
+  .run:hover { background: var(--shell-hover); border-color: var(--hairline); transform: translateY(-1px); }
+  .run:active { transform: translateY(0) scale(0.995); }
+  .run.selected { background: var(--accent-soft); border-color: var(--accent-ring); }
+  .run-core {
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 11px 30px 11px 13px; border-radius: 14px;
+    background: var(--core); border: 1px solid var(--hairline);
+    box-shadow: var(--inset-hi);
+    transition: background-color 0.45s var(--ease);
+  }
+  .run:hover .run-core { background: var(--core-hover); }
+  .run .line1 { display: flex; gap: 8px; align-items: center; min-width: 0; }
+  .run .title { font-weight: 600; font-size: 13px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run .line2 { display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .run .dur { margin-left: auto; flex: 0 0 auto; opacity: 0.7; }
+  .run .line2::after {
+    content: ''; margin-left: 8px; width: 5px; height: 5px; flex: 0 0 auto;
+    border-top: 1.4px solid var(--text-3); border-right: 1.4px solid var(--text-3);
+    transform: rotate(45deg); opacity: 0.35;
+    transition: transform 0.45s var(--ease), opacity 0.45s var(--ease);
+  }
+  .run:hover .line2::after { opacity: 1; transform: rotate(45deg) translate(2px, -2px); }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    font-size: 9.5px; font-weight: 650; letter-spacing: 0.09em; text-transform: uppercase;
+    padding: 3px 8px 3px 4px; border-radius: 999px;
+    background: var(--shell-hover); border: 1px solid var(--hairline); color: var(--text-2);
+  }
+  .badge .badge-logo { width: 15px; height: 15px; border-radius: 5px; object-fit: cover; }
+  .state {
+    display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+    font-size: 9.5px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 999px;
+    background: var(--shell-hover); color: var(--text-2);
+  }
+  .state.running { background: var(--warn-soft); color: var(--warn); }
+  .state.running::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: breathe 1.9s var(--ease) infinite; }
+  .state.completed { background: var(--ok-soft); color: var(--ok); }
+  .state.failed { background: var(--err-soft); color: var(--err); }
+  .state.cancelled { background: var(--shell-hover); color: var(--text-3); }
+  /* ===== 内容列（日志页） ===== */
+  .content-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .log-head { display: none; align-items: center; gap: 10px; width: 100%; max-width: 924px; margin: 0 auto; padding: 16px 22px 8px; flex: 0 0 auto; min-width: 0; }
+  body.view-log .log-head { display: flex; }
+  .log-head .lh-agent {
+    flex: 0 0 auto; font-size: 9.5px; font-weight: 650; letter-spacing: 0.09em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px;
+    background: var(--accent-soft); border: 1px solid var(--accent-ring); color: var(--accent-ink);
+  }
+  .log-head .lh-title { font-size: 13.5px; font-weight: 650; letter-spacing: -0.015em; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .log-head .lh-time { margin-left: auto; flex: 0 0 auto; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  section.events {
+    flex: 1; min-height: 0; min-width: 0; overflow-y: auto;
+    padding: 8px 22px 40px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+  /* 内容列限宽：宽屏下保持舒适行宽 */
+  section.events > * { width: 100%; max-width: 880px; }
+  /* 进入动画：仅首次渲染（fresh 由 JS 一次性标记，轮询重建不重播） */
+  .events.fresh > * { animation: rise 0.75s var(--ease) both; }
+  .events.fresh > *:nth-child(1) { animation-delay: 0.02s; }
+  .events.fresh > *:nth-child(2) { animation-delay: 0.06s; }
+  .events.fresh > *:nth-child(3) { animation-delay: 0.10s; }
+  .events.fresh > *:nth-child(4) { animation-delay: 0.14s; }
+  .events.fresh > *:nth-child(5) { animation-delay: 0.18s; }
+  .events.fresh > *:nth-child(6) { animation-delay: 0.22s; }
+  .events.fresh > *:nth-child(n+7) { animation-delay: 0.26s; }
+  aside.fresh > .run { animation: rise 0.7s var(--ease) both; }
+  aside.fresh > .run:nth-child(1) { animation-delay: 0.02s; }
+  aside.fresh > .run:nth-child(2) { animation-delay: 0.05s; }
+  aside.fresh > .run:nth-child(3) { animation-delay: 0.08s; }
+  aside.fresh > .run:nth-child(4) { animation-delay: 0.11s; }
+  aside.fresh > .run:nth-child(5) { animation-delay: 0.14s; }
+  aside.fresh > .run:nth-child(n+6) { animation-delay: 0.17s; }
+  /* ===== 事件流：分层消息 ===== */
+  .msg { display: flex; gap: 12px; align-items: flex-start; }
+  .msg .avatar {
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: 9px; margin-top: 1px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 650; color: #fff;
+    background: linear-gradient(145deg, #9a9aa5, #6d6d78);
+    box-shadow: 0 0 0 1px var(--hairline), var(--inset-hi);
+    overflow: hidden;
+  }
+  .msg .avatar.has-logo { background: transparent; }
+  .msg .avatar .logo { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
+  .msg.text .avatar { background: linear-gradient(145deg, #9184ff, #6a5af0); }
+  .msg.tool_call .avatar { background: linear-gradient(145deg, #5cabff, #2f7fe0); }
+  .msg.tool_result .avatar { background: linear-gradient(145deg, #4ad295, #1f9e68); }
+  .msg.think .avatar { background: linear-gradient(145deg, #b0b0bb, #83838f); }
+  .msg.error .avatar { background: linear-gradient(145deg, #ff8a80, #e5484d); }
+  .msg .content { flex: 1; min-width: 0; }
+  .msg .meta-row { display: flex; align-items: center; gap: 8px; margin: 3px 0 6px; font-size: 11px; color: var(--text-3); min-height: 15px; }
+  .msg .meta-row .toggle { margin-left: auto; }
+  .msg .ts { font-variant-numeric: tabular-nums; transition: color 0.3s var(--ease); }
+  .msg .ts:empty { display: none; }
+  .msg:hover .ts { color: var(--text-2); }
+  .msg .tool-name {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: -0.01em;
+    color: var(--tool); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .msg .bubble {
+    background: var(--core); border: 1px solid var(--hairline);
+    border-radius: 4px 16px 16px 16px;
+    padding: 10px 14px; white-space: pre-wrap; word-break: break-word;
+    font-size: 12.5px; line-height: 1.62; box-shadow: var(--inset-hi);
+  }
+  .msg.error .bubble { background: var(--err-soft); border-color: var(--err-ring); color: var(--err); }
+  .tool-card, .result-card {
+    border-radius: 12px; padding: 9px 12px;
+    border: 1px solid var(--hairline); box-shadow: var(--inset-hi);
+  }
+  .tool-card { background: var(--tool-soft); }
+  .result-card { background: var(--ok-soft); }
+  .result-card.error { background: var(--err-soft); border-color: var(--err-ring); }
+  .summary {
+    font-size: 11.5px; line-height: 1.6; color: var(--text-2); white-space: pre-wrap; word-break: break-word;
+    font-family: var(--mono); letter-spacing: -0.01em;
+  }
+  .toggle {
+    font-size: 11px; font-weight: 550; color: var(--accent-ink); cursor: pointer; user-select: none; flex: 0 0 auto;
+    transition: color 0.3s var(--ease);
+  }
+  .toggle:hover { color: var(--accent); }
+  .think-head, .work-head, .sys-head {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+    font-size: 11.5px; color: var(--text-2); cursor: pointer;
+    background: var(--shell-hover); border: 1px solid var(--hairline);
+    border-radius: 999px; padding: 4px 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: background-color 0.3s var(--ease), color 0.3s var(--ease), border-color 0.3s var(--ease);
+  }
+  .think-head:hover, .work-head:hover, .sys-head:hover { background: var(--core-hover); color: var(--text-1); }
+  /* ===== 工作过程 / 系统事件折叠 ===== */
+  .work, .sys-group { padding-left: 38px; } /* 与消息内容列（头像 26 + 间距 12）对齐 */
+  .work.error .work-head { color: var(--err); background: var(--err-soft); border-color: var(--err-soft); }
+  .work.error .work-head::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+  .work-body {
+    margin: 8px 0 0 12px; padding-left: 12px;
+    border-left: 1px solid var(--hairline-strong);
+    display: flex; flex-direction: column; gap: 5px;
+    animation: unfold 0.45s var(--ease) both;
+  }
+  .work-line { font-size: 11.5px; color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
+  .work-line .wl-ts { color: var(--text-3); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .work-line.err { color: var(--err); }
+  .sys-head { color: var(--text-3); }
+  .think-body {
+    margin-top: 8px; padding: 10px 14px;
+    border-left: 1px solid var(--hairline-strong);
+    color: var(--text-2); font-size: 12px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+    animation: unfold 0.45s var(--ease) both;
+  }
+  .sys { font-size: 11px; color: var(--text-3); padding: 0 2px; }
+  .sys .toggle { margin-left: 6px; }
+  pre.detail {
+    margin: 8px 0 0; padding: 10px 12px;
+    background: var(--shell-hover); border: 1px solid var(--hairline); border-radius: 10px;
+    font-size: 11px; line-height: 1.55; color: var(--text-2);
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 320px; overflow: auto; font-family: var(--mono);
+    animation: unfold 0.45s var(--ease) both;
+  }
+  /* ===== 空态 ===== */
+  .live { display: flex; align-items: center; gap: 8px; padding: 4px 0 0 38px; font-size: 11px; color: var(--text-2); }
+  .live .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: 0 0 auto; animation: breathe 1.9s var(--ease) infinite; }
+  .placeholder {
+    padding: 64px 24px; text-align: center; color: var(--text-3);
+    font-size: 12.5px; line-height: 1.7;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+  .placeholder::before {
+    content: ''; width: 34px; height: 34px; border-radius: 12px;
+    background: var(--shell-hover); border: 1px solid var(--hairline);
+    box-shadow: var(--inset-hi);
+  }
+  .placeholder.error { color: var(--err); }
+  .placeholder.error::before { background: var(--err-soft); border-color: var(--err-ring); }
+  /* ===== inline 卡片（会话时间线）：外层壳 + 内芯 ===== */
+  body.inline-card {
+    height: auto; padding: 5px; border-radius: 22px;
+    background: var(--shell); border: 1px solid var(--hairline);
+  }
+  body.inline-card::before { display: none; }
+  body.inline-card header {
+    margin: 0; padding: 8px 12px;
+    border-radius: 16px 16px 0 0; border-bottom: none;
+    background: var(--glass-strong);
+  }
+  body.inline-card header h1 { font-size: 12.5px; }
+  body.inline-card label.follow { display: none; }
+  body.inline-card main { display: block; }
+  body.inline-card .content-col { display: none; }
+  body.inline-card aside {
+    width: auto; max-height: 300px; min-height: 0;
+    border: 1px solid var(--hairline); border-top: 1px solid var(--hairline);
+    border-radius: 0 0 16px 16px;
+    background: var(--glass);
+    padding: 7px 7px 9px; gap: 5px;
+  }
+  body.inline-card .run { padding: 3px; border-radius: 14px; background: transparent; border-color: transparent; }
+  body.inline-card .run:hover { background: var(--shell-hover); border-color: var(--hairline); transform: none; }
+  body.inline-card .run-core { border-radius: 11px; padding: 9px 28px 9px 11px; }
+  body.inline-card .run:hover .run-core { background: var(--core-hover); }
+  /* ===== 两页视图：列表（默认）与日志分开 ===== */
+  button.back { display: none; }
+  body.view-log button.back { display: inline-flex; }
+  body.view-list aside { width: auto; flex: 1; border-right: none; align-items: center; padding: 18px 20px 36px; }
+  body.view-list aside > * { width: 100%; max-width: 680px; }
+  body.view-list .content-col { display: none; }
+  body.view-log aside { display: none; }
+  .scope-badge {
+    flex: 0 0 auto; font-size: 9.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+    background: var(--accent-soft); border: 1px solid var(--accent-ring); color: var(--accent-ink);
+  }
+  body.inline-card .scope-badge, body.inline-card label.scope { display: none; }
+  /* 小屏收窄：放在文件末尾以保证覆盖基础规则 */
+  @media (max-width: 640px) {
+    section.events { padding: 6px 16px 32px; }
+    .log-head { padding: 12px 16px 8px; }
+    .work, .sys-group { padding-left: 30px; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <button class="back" id="back" title="返回列表">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+      列表
+    </button>
+    <h1 id="title">外部 Agent</h1>
+    <span class="scope-badge" id="scopeBadge" title="默认只显示本会话委托的外部 Agent">本会话</span>
+    <span class="status-dot" id="dot" title=""></span>
+    <span id="statusText"></span>
+    <span class="spacer"></span>
+    <label class="scope"><input type="checkbox" id="allRuns"> 全部会话</label>
+    <label class="scope"><input type="checkbox" id="showFinished"> 显示已结束</label>
+    <label class="follow"><input type="checkbox" id="follow" checked> 跟随</label>
+    <button class="refresh" id="refresh" title="重新加载">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      刷新
+    </button>
+  </header>
+  <main>
+    <aside id="runs"><div class="placeholder">正在加载任务…</div></aside>
+    <div class="content-col">
+      <div class="log-head" id="logHead">
+        <span class="lh-agent" id="lhAgent"></span>
+        <span class="lh-title" id="lhTitle"></span>
+        <span class="lh-state state" id="lhState"></span>
+        <span class="lh-time" id="lhTime"></span>
+      </div>
+      <section class="events" id="events"><div class="placeholder">从左侧选择一个任务，查看它的执行日志</div></section>
+    </div>
+  </main>
+  <script>
+  (function () {
+    'use strict';
+
+    /* ===== MCP App bridge：握手 + tools/call（经宿主转发，JSON-RPC over postMessage） ===== */
+    var INIT_ID = 1;
+    var nextId = 2;
+    var initialized = false;
+    var queue = [];
+    var pending = {};
+
+    function post(msg) { window.parent.postMessage(msg, '*'); }
+    function request(method, params) {
+      return new Promise(function (resolve, reject) {
+        var id = nextId++;
+        pending[id] = { resolve: resolve, reject: reject };
+        var msg = { jsonrpc: '2.0', id: id, method: method, params: params || {} };
+        if (initialized) post(msg); else queue.push(msg);
+      });
+    }
+    function callTool(name, args) {
+      return request('tools/call', { name: name, arguments: args || {} }).then(function (res) {
+        var text = res && res.content && res.content[0] && res.content[0].text;
+        if (typeof text !== 'string') throw new Error('工具返回格式异常');
+        return JSON.parse(text);
+      });
+    }
+
+    window.addEventListener('message', function (ev) {
+      var m = ev.data;
+      if (!m || typeof m !== 'object') return;
+      if (!initialized && m.id === INIT_ID && m.result) {
+        initialized = true;
+        post({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+        queue.splice(0).forEach(post);
+        var hostContext = (m.result && m.result.hostContext) || {};
+        boot(hostContext.displayMode === 'inline' ? 'inline' : 'fullscreen');
+        return;
+      }
+      if (m.id !== undefined && m.id !== null && pending[m.id] !== undefined) {
+        var p = pending[m.id];
+        delete pending[m.id];
+        if (m.error) p.reject(new Error((m.error && m.error.message) || 'host error'));
+        else p.resolve(m.result);
+      }
+    });
+
+    post({
+      jsonrpc: '2.0', id: INIT_ID, method: 'ui/initialize',
+      params: {
+        appInfo: { name: 'external-agents-extend', version: '0.2.0' },
+        appCapabilities: {},
+        protocolVersion: '2026-01-26',
+      },
+    });
+
+    /* ===== 状态与 DOM 引用 ===== */
+    var state = {
+      runs: [],
+      selected: null,
+      events: [],
+      consumed: 0,
+      degraded: false,
+      error: null,
+      pollTimer: null,
+      scope: 'session', // 'session'（默认，本会话）| 'all'（全部历史）
+      freshRuns: true, // 列表进入动画：一次性，轮询重建不重播
+      freshEvents: false, // 事件流进入动画：一次性
+      runStatus: null, // 当前任务的读取状态（running 时显示流式指示器）
+    };
+    var view = 'list'; // 'list'（列表页）| 'log'（日志页）
+    var inlineTimer = null;
+    var elRuns = document.getElementById('runs');
+    var elEvents = document.getElementById('events');
+    var elDot = document.getElementById('dot');
+    var elStatus = document.getElementById('statusText');
+    var elFollow = document.getElementById('follow');
+    var elRefresh = document.getElementById('refresh');
+    var elTitle = document.getElementById('title');
+    var elBack = document.getElementById('back');
+    var elAllRuns = document.getElementById('allRuns');
+    var elScopeBadge = document.getElementById('scopeBadge');
+    var elShowFinished = document.getElementById('showFinished');
+    var elLhAgent = document.getElementById('lhAgent');
+    var elLhTitle = document.getElementById('lhTitle');
+    var elLhState = document.getElementById('lhState');
+    var elLhTime = document.getElementById('lhTime');
+
+    function setStatus(kind, text) {
+      elDot.className = 'status-dot ' + (kind || '');
+      elStatus.textContent = text || '';
+      elDot.title = text || '';
+    }
+    var STATUS_LABELS = { running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
+    function statusLabel(s) { return STATUS_LABELS[s] || s || '未知'; }
+
+    /** 日志页顶部上下文条：当前任务的 agent / 标题 / 状态。 */
+    function updateLogHead() {
+      var run = null;
+      for (var i = 0; i < state.runs.length; i += 1) {
+        if (state.runs[i].taskId === state.selected) { run = state.runs[i]; break; }
+      }
+      if (!run) {
+        elLhAgent.textContent = '';
+        elLhTitle.textContent = '';
+        elLhState.className = 'lh-state state';
+        elLhState.textContent = '';
+        elLhTime.textContent = '';
+        return;
+      }
+      elLhAgent.textContent = run.agentType || 'agent';
+      elLhTitle.textContent = run.taskTitle || run.taskId;
+      elLhState.className = 'lh-state state ' + (run.status || '');
+      elLhState.textContent = statusLabel(run.status);
+      elLhTime.textContent = fmtRange(run);
+    }
+    function p2(n) { return (n < 10 ? '0' : '') + n; }
+    function fmtTime(iso) {
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
+    }
+    /** 任务时间范围：同日折叠日期（`9/18 09:55 – 10:03`；运行中显示 `9/18 09:55 起`）。 */
+    function fmtRange(r) {
+      var s = new Date(r.startedAt);
+      if (isNaN(s.getTime())) return '';
+      var head = (s.getMonth() + 1) + '/' + p2(s.getDate()) + ' ' + p2(s.getHours()) + ':' + p2(s.getMinutes());
+      var e = r.completedAt ? new Date(r.completedAt) : null;
+      if (!e || isNaN(e.getTime())) return head + ' 起';
+      var sameDay = s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate();
+      var tail = sameDay
+        ? p2(e.getHours()) + ':' + p2(e.getMinutes())
+        : (e.getMonth() + 1) + '/' + p2(e.getDate()) + ' ' + p2(e.getHours()) + ':' + p2(e.getMinutes());
+      return head + ' – ' + tail;
+    }
+    function fmtDateTime(iso) {
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return (d.getMonth() + 1) + '/' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+    }
+    /** 任务耗时（运行中按当前时间计算）。 */
+    function fmtDuration(r) {
+      var start = new Date(r.startedAt).getTime();
+      if (!isFinite(start)) return '';
+      var end = r.completedAt ? new Date(r.completedAt).getTime() : Date.now();
+      if (!isFinite(end) || end < start) return '';
+      var s = Math.round((end - start) / 1000);
+      if (s < 60) return s + ' 秒';
+      if (s < 3600) return Math.round(s / 60) + ' 分';
+      return (s / 3600).toFixed(1) + ' 小时';
+    }
+
+    /* ===== 任务列表 ===== */
+    function renderRuns() {
+      elRuns.textContent = '';
+      elRuns.classList.toggle('fresh', state.freshRuns);
+      state.freshRuns = false;
+      if (state.runs.length === 0) {
+        var ph = document.createElement('div');
+        ph.className = 'placeholder';
+        ph.textContent =
+          state.scope === 'all'
+            ? '没有找到委托任务（可勾选「显示已结束」查看历史）'
+            : '本会话暂无外部 Agent（可勾选「全部会话」或「显示已结束」查看历史）';
+        elRuns.appendChild(ph);
+        return;
+      }
+      state.runs.forEach(function (r) {
+        var item = document.createElement('div');
+        item.className = 'run' + (r.taskId === state.selected ? ' selected' : '');
+
+        var core = document.createElement('div'); core.className = 'run-core';
+        var l1 = document.createElement('div'); l1.className = 'line1';
+        var badge = document.createElement('span'); badge.className = 'badge';
+        var rLogo = agentLogo(r.agentType);
+        if (rLogo) {
+          var rImg = document.createElement('img');
+          rImg.className = 'badge-logo';
+          rImg.alt = '';
+          rImg.src = rLogo;
+          badge.appendChild(rImg);
+        }
+        var rLabel = document.createElement('span');
+        rLabel.textContent = r.agentType || '?';
+        badge.appendChild(rLabel);
+        var title = document.createElement('span'); title.className = 'title';
+        title.textContent = r.taskTitle || r.taskId;
+        title.title = r.taskId;
+        l1.appendChild(badge); l1.appendChild(title);
+
+        var l2 = document.createElement('div'); l2.className = 'line2';
+        var st = document.createElement('span'); st.className = 'state ' + (r.status || ''); st.textContent = statusLabel(r.status);
+        var tm = document.createElement('span'); tm.textContent = fmtDateTime(r.startedAt);
+        var dur = document.createElement('span'); dur.className = 'dur'; dur.textContent = fmtDuration(r);
+        l2.appendChild(st); l2.appendChild(tm); l2.appendChild(dur);
+
+        core.appendChild(l1); core.appendChild(l2);
+        item.appendChild(core);
+        item.addEventListener('click', function () {
+          if (view === 'log') {
+            selectRun(r.taskId);
+            return;
+          }
+          if (document.body.classList.contains('inline-card')) {
+            openLogFor(r.taskId); // inline 卡片：先请求全屏，再进日志页
+          } else {
+            selectRun(r.taskId);
+            applyView('log'); // 全屏列表：直接进日志页
+          }
+        });
+        elRuns.appendChild(item);
+      });
+    }
+
+    function loadRuns(fresh) {
+      if (fresh) state.freshRuns = true;
+      // 默认隐藏已完成/已取消；勾选「显示已结束」后带上 includeFinished=true
+      return callTool('list_agent_runs', {
+        limit: 50,
+        scope: state.scope,
+        includeFinished: elShowFinished.checked,
+      }).then(function (data) {
+        state.runs = (data && data.runs) || [];
+        // 服务端在无法确定活跃会话时会回退为 all，这里保持两边状态一致
+        if (data && (data.scope === 'session' || data.scope === 'all')) {
+          state.scope = data.scope;
+          elAllRuns.checked = data.scope === 'all';
+          elScopeBadge.textContent = data.scope === 'all' ? '全部会话' : '本会话';
+        }
+        renderRuns();
+        // inline 卡片：状态行汇总运行中数量
+        if (document.body.classList.contains('inline-card')) {
+          var running = state.runs.filter(function (r) { return r.status === 'running'; }).length;
+          if (running > 0) setStatus('running', running + ' 个运行中');
+          else setStatus('ok', state.runs.length + ' 个任务');
+        }
+        return state.runs;
+      }).catch(function (err) {
+        elRuns.textContent = '';
+        var ph = document.createElement('div');
+        ph.className = 'placeholder error';
+        ph.textContent = '任务列表读取失败：' + err.message;
+        elRuns.appendChild(ph);
+        setStatus('error', '读取失败');
+      });
+    }
+
+    /* ===== 事件流（全部 textContent 渲染，杜绝 XSS） ===== */
+    function renderEvents() {
+      elEvents.textContent = '';
+      elEvents.classList.remove('fresh');
+      if (state.error) {
+        var pe = document.createElement('div');
+        pe.className = 'placeholder error';
+        pe.textContent = state.error;
+        elEvents.appendChild(pe);
+        return;
+      }
+      if (!state.selected) {
+        var pd = document.createElement('div');
+        pd.className = 'placeholder';
+        pd.textContent = '从左侧选择一个任务，查看它的执行日志';
+        elEvents.appendChild(pd);
+        return;
+      }
+      if (state.events.length === 0) {
+        var pz = document.createElement('div');
+        pz.className = 'placeholder';
+        pz.textContent = '暂无事件';
+        elEvents.appendChild(pz);
+        return;
+      }
+      elEvents.classList.toggle('fresh', state.freshEvents);
+      state.freshEvents = false;
+      buildBlocks(state.events).forEach(function (b) {
+        if (b.type === 'work') elEvents.appendChild(renderWorkGroup(b.items));
+        else if (b.type === 'sys') elEvents.appendChild(renderSysGroup(b.items));
+        else elEvents.appendChild(renderEvent(b.ev));
+      });
+      if (state.runStatus === 'running') elEvents.appendChild(makeLiveIndicator());
+    }
+
+    /** 运行中任务的流式指示器（事件流末尾脉冲点）。 */
+    function makeLiveIndicator() {
+      var wrap = document.createElement('div');
+      wrap.className = 'live';
+      var dot = document.createElement('span'); dot.className = 'live-dot';
+      var label = document.createElement('span'); label.textContent = '运行中';
+      wrap.appendChild(dot); wrap.appendChild(label);
+      return wrap;
+    }
+    var TEXT_LIMIT = 600;
+    var DETAIL_LIMIT = 8000;
+    var PASSIVE_KINDS = { llm: 1, usage: 1, meta: 1, step: 1, notice: 1, unknown: 1 };
+
+    /* ===== 各外部 Agent 的官方 logo（构建时内联 data URI；本机提取，版权归各厂商，仅作本地标识） ===== */
+    var AGENT_LOGOS = {
+      kimi: "data:image/png;base64,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",
+      cursor: "data:image/png;base64,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",
+      codex: "data:image/png;base64,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",
+      grok: "data:image/png;base64,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",
+      opencode: "data:image/png;base64,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",
+      zcode: "data:image/png;base64,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",
+    };
+
+    function agentLogo(agentType) {
+      var t = String(agentType || '').toLowerCase();
+      return AGENT_LOGOS[t] || null;
+    }
+
+    /** 当前选中任务的 agent 类型。 */
+    function currentAgentType() {
+      for (var i = 0; i < state.runs.length; i += 1) {
+        if (state.runs[i].taskId === state.selected) return state.runs[i].agentType || '';
+      }
+      return '';
+    }
+
+    /* ===== dim 风格：工具显示名与「工作过程」聚合（对齐 DimAgent 的 toolDisplay.* / timeline.workSummary） ===== */
+    var TOOL_LABELS = {
+      read_file: '读取', readfile: '读取', view_file: '读取', read: '读取',
+      write_file: '写入', create_file: '写入', write: '写入',
+      edit_file: '编辑', apply_patch: '编辑', str_replace: '编辑', replace: '编辑', edit: '编辑',
+      grep: '搜索内容', search_files: '搜索', codebase_search: '搜索代码', search: '搜索',
+      glob: '查找', find: '查找', list_dir: '列出文件', list_files: '列出文件', ls: '列出文件',
+      run_command: '执行', exec_command: '执行', shell: '执行', bash: '执行', exec: '执行', command: '执行',
+      task: '智能体', agent: '智能体', subagent: '智能体',
+      web_search: '搜索网络', web_fetch: '获取网页', fetch: '获取网页', browser: '浏览器',
+      wait: '等待', ask_user: '询问用户', todo: '任务', todos: '任务', plan: '计划',
+    };
+
+    /** 工具名 → 中文显示名（未匹配则原样返回）。 */
+    function toolLabel(name) {
+      if (!name) return '工具';
+      var n = String(name).toLowerCase();
+      if (TOOL_LABELS[n] !== undefined) return TOOL_LABELS[n];
+      var keys = Object.keys(TOOL_LABELS);
+      for (var i = 0; i < keys.length; i += 1) {
+        if (n.indexOf(keys[i]) >= 0) return TOOL_LABELS[keys[i]];
+      }
+      return String(name);
+    }
+
+    function clip(s, n) { return s.length > n ? s.slice(0, n) + '…' : s; }
+
+    /** 一组工具调用的动作摘要，如「读取 · 搜索内容 · 执行 等」。 */
+    function summarizeActions(calls) {
+      var seen = [];
+      calls.forEach(function (c) {
+        var l = toolLabel(c.name);
+        if (seen.indexOf(l) < 0) seen.push(l);
+      });
+      if (seen.length === 0) return '';
+      if (seen.length > 3) return seen.slice(0, 3).join(' · ') + ' 等';
+      return seen.join(' · ');
+    }
+
+    /** 事件流 → 渲染块：连续工具事件聚为 work；连续系统事件聚为 sys；其余逐条。 */
+    function buildBlocks(events) {
+      var blocks = [];
+      var work = null;
+      var sys = null;
+      events.forEach(function (ev) {
+        var kind = ev.kind || 'unknown';
+        if (kind === 'tool_call' || kind === 'tool_result') {
+          sys = null;
+          if (work === null) { work = { type: 'work', items: [] }; blocks.push(work); }
+          work.items.push(ev);
+          return;
+        }
+        work = null;
+        if (PASSIVE_KINDS[kind]) {
+          if (sys === null) { sys = { type: 'sys', items: [] }; blocks.push(sys); }
+          sys.items.push(ev);
+          return;
+        }
+        sys = null;
+        blocks.push({ type: kind === 'think' ? 'think' : 'text', ev: ev });
+      });
+      return blocks;
+    }
+
+    function renderWorkLine(ev) {
+      var line = document.createElement('div');
+      line.className = 'work-line' + (ev.status === 'error' ? ' err' : '');
+      var label = toolLabel(ev.name);
+      var text = typeof ev.text === 'string' ? ev.text : '';
+      var body;
+      if (ev.kind === 'tool_call') {
+        var sum = summarizeDetail(ev.detail) || text;
+        body = label + (sum ? '  ' + clip(sum.replace(/\s+/g, ' '), 140) : '');
+      } else {
+        body = '↳ ' + (text ? clip(text.replace(/\s+/g, ' '), 160) : '(空)');
+      }
+      appendWithTime(line, ev.ts, body);
+      line.title = label + (text ? '\n' + text : '');
+      return line;
+    }
+
+    /** 行内时间前缀：无 ts 时不渲染任何占位（cursor 会话日志无逐条时间）。 */
+    function appendWithTime(line, ts, body) {
+      var time = fmtTime(ts);
+      if (time) {
+        var tsEl = document.createElement('span');
+        tsEl.className = 'wl-ts';
+        tsEl.textContent = time;
+        line.appendChild(tsEl);
+      }
+      var bodyEl = document.createElement('span');
+      bodyEl.textContent = body;
+      line.appendChild(bodyEl);
+      return line;
+    }
+
+    /** 「工作过程 · {actions}（N 步）」折叠块，默认收起。 */
+    function renderWorkGroup(items) {
+      var calls = items.filter(function (e) { return e.kind === 'tool_call'; });
+      var steps = calls.length > 0 ? calls.length : items.length;
+      var actions = summarizeActions(calls);
+      var hasError = items.some(function (e) { return e.status === 'error'; });
+      var label = '工作过程' + (actions ? ' · ' + actions : '') + '（' + steps + ' 步）';
+      var wrap = document.createElement('div');
+      wrap.className = 'work' + (hasError ? ' error' : '');
+      var head = makeToggle(label);
+      head.className = 'work-head';
+      attachExpandable(head, wrap, '工作过程（收起）', label, function () {
+        var body = document.createElement('div');
+        body.className = 'work-body';
+        items.forEach(function (ev) { body.appendChild(renderWorkLine(ev)); });
+        return body;
+      });
+      wrap.appendChild(head);
+      return wrap;
+    }
+
+    /** 系统事件（llm / usage / meta / step / notice / unknown）聚合折叠，默认收起。 */
+    function renderSysGroup(items) {
+      var wrap = document.createElement('div');
+      wrap.className = 'sys-group';
+      var label = '系统事件（' + items.length + '）';
+      var head = makeToggle(label);
+      head.className = 'sys-head';
+      attachExpandable(head, wrap, '系统事件（收起）', label, function () {
+        var body = document.createElement('div');
+        body.className = 'work-body';
+        items.forEach(function (ev) {
+          var line = document.createElement('div');
+          line.className = 'work-line';
+          var t = typeof ev.text === 'string' ? clip(ev.text.replace(/\s+/g, ' '), 120) : '';
+          appendWithTime(line, ev.ts, (ev.kind || '?') + (ev.name ? ' · ' + ev.name : '') + (t ? ' · ' + t : ''));
+          body.appendChild(line);
+        });
+        return body;
+      });
+      wrap.appendChild(head);
+      return wrap;
+    }
+
+    /** 头像：优先 agent logo，加载失败或缺失时回退为首字母。 */
+    function makeAvatar() {
+      var av = document.createElement('div');
+      av.className = 'avatar';
+      var logo = agentLogo(currentAgentType());
+      if (logo) {
+        av.classList.add('has-logo');
+        var img = document.createElement('img');
+        img.className = 'logo';
+        img.alt = '';
+        img.src = logo;
+        img.addEventListener('error', function () {
+          av.classList.remove('has-logo');
+          av.textContent = agentInitial();
+        });
+        av.appendChild(img);
+      } else {
+        av.textContent = agentInitial();
+      }
+      return av;
+    }
+
+    /** 当前选中任务的 agent 首字母（头像回退字符）。 */
+    function agentInitial() {
+      for (var i = 0; i < state.runs.length; i += 1) {
+        if (state.runs[i].taskId === state.selected && state.runs[i].agentType) {
+          return String(state.runs[i].agentType).slice(0, 1).toUpperCase();
+        }
+      }
+      return 'A';
+    }
+
+    function makeToggle(label) {
+      var el = document.createElement('span');
+      el.className = 'toggle';
+      el.textContent = label;
+      return el;
+    }
+
+    function detailPre(detail) {
+      var pre = document.createElement('pre');
+      pre.className = 'detail';
+      var s;
+      try { s = JSON.stringify(detail, null, 1); } catch (e) { s = String(detail); }
+      pre.textContent = s.length > DETAIL_LIMIT ? s.slice(0, DETAIL_LIMIT) + '\n…（已截断）' : s;
+      return pre;
+    }
+
+    /** 展开/收起：点击 toggle 在 container 末尾附加或移除一个 body 节点。 */
+    function attachExpandable(toggleEl, container, labelOpen, labelClosed, makeBody) {
+      var body = null;
+      var open = false;
+      toggleEl.addEventListener('click', function () {
+        open = !open;
+        if (open) {
+          if (body === null) body = makeBody();
+          container.appendChild(body);
+          toggleEl.textContent = labelOpen;
+        } else if (body !== null && body.parentElement === container) {
+          container.removeChild(body);
+          toggleEl.textContent = labelClosed;
+        }
+      });
+    }
+
+    /** 从 detail 里取一行参数摘要：优先工具参数（args），否则剔除技术字段后的 detail。 */
+    var DETAIL_NOISE = {
+      blobId: 1, index: 1, role: 1, messageId: 1, toolCallId: 1, model: 1, uuid: 1,
+      stepUuid: 1, turnId: 1, step: 1, userQuery: 1, userQueryFullChars: 1,
+      truncated: 1, argsTruncated: 1, argKeys: 1, injected: 1, reason: 1, isError: 1,
+    };
+    function summarizeDetail(detail) {
+      if (!detail || typeof detail !== 'object') return '';
+      var src = detail.args && typeof detail.args === 'object' ? detail.args : null;
+      if (!src) {
+        src = {};
+        var keys = Object.keys(detail);
+        for (var i = 0; i < keys.length; i += 1) {
+          if (!DETAIL_NOISE[keys[i]]) src[keys[i]] = detail[keys[i]];
+        }
+      }
+      var s;
+      try { s = JSON.stringify(src); } catch (e) { return ''; }
+      if (!s || s === '{}') return '';
+      return s.length > 180 ? s.slice(0, 180) + '…' : s;
+    }
+
+    function renderEvent(ev) {
+      var kind = ev.kind || 'unknown';
+      var text = typeof ev.text === 'string' ? ev.text : '';
+      var isError = ev.status === 'error';
+      var timeLabel = fmtTime(ev.ts);
+
+      /* 被动事件（llm / usage / meta / step / notice / unknown）→ 单行弱化 */
+      if (PASSIVE_KINDS[kind]) {
+        var line = document.createElement('div');
+        line.className = 'sys';
+        var parts = [kind];
+        if (ev.name) parts.push(String(ev.name));
+        if (isError) parts.push('错误');
+        if (text) parts.push(text.replace(/\s+/g, ' ').slice(0, 140));
+        line.textContent = parts.join(' · ');
+        line.title = timeLabel;
+        if (ev.detail && typeof ev.detail === 'object') {
+          var dTg = makeToggle('详情');
+          attachExpandable(dTg, line, '收起详情', '详情', function () { return detailPre(ev.detail); });
+          line.appendChild(dTg);
+        }
+        return line;
+      }
+
+      /* 其余 → 头像 + 内容（聊天式消息行） */
+      var wrap = document.createElement('div');
+      wrap.className = 'msg ' + kind + (isError ? ' error' : '');
+      var av = makeAvatar();
+      var content = document.createElement('div');
+      content.className = 'content';
+      wrap.appendChild(av);
+      wrap.appendChild(content);
+
+      var meta = document.createElement('div');
+      meta.className = 'meta-row';
+      var ts = document.createElement('span');
+      ts.className = 'ts';
+      ts.textContent = timeLabel;
+      meta.appendChild(ts);
+      content.appendChild(meta);
+
+      /* 思考 → 折叠胶囊 */
+      if (kind === 'think') {
+        var thinkTg = makeToggle('思考');
+        thinkTg.className = 'think-head';
+        attachExpandable(thinkTg, content, '思考（收起）', '思考', function () {
+          var b = document.createElement('div');
+          b.className = 'think-body';
+          b.textContent = text || '(空)';
+          return b;
+        });
+        content.appendChild(thinkTg);
+        return wrap;
+      }
+
+      /* 工具调用 → 工具卡片（名称 + 参数摘要 + 可展开） */
+      if (kind === 'tool_call') {
+        var tn = document.createElement('span');
+        tn.className = 'tool-name';
+        tn.textContent = ev.name ? String(ev.name) : 'tool';
+        meta.appendChild(tn);
+
+        var card = document.createElement('div');
+        card.className = 'tool-card';
+        var sum = summarizeDetail(ev.detail) || text;
+        if (sum) {
+          var sumEl = document.createElement('div');
+          sumEl.className = 'summary';
+          sumEl.textContent = sum;
+          card.appendChild(sumEl);
+        }
+        if (ev.detail && typeof ev.detail === 'object') {
+          var t1 = makeToggle('参数');
+          attachExpandable(t1, card, '收起参数', '参数', function () { return detailPre(ev.detail); });
+          card.appendChild(t1);
+        }
+        content.appendChild(card);
+        return wrap;
+      }
+
+      /* 工具结果 → 结果卡片（长文本可展开） */
+      if (kind === 'tool_result') {
+        var tn2 = document.createElement('span');
+        tn2.className = 'tool-name';
+        tn2.textContent = ev.name ? String(ev.name) : '结果';
+        meta.appendChild(tn2);
+
+        var card2 = document.createElement('div');
+        card2.className = 'result-card' + (isError ? ' error' : '');
+        var body2 = document.createElement('div');
+        body2.className = 'summary';
+        var long2 = text.length > TEXT_LIMIT;
+        body2.textContent = text ? (long2 ? text.slice(0, TEXT_LIMIT) + ' …' : text) : '(空)';
+        card2.appendChild(body2);
+        if (long2) {
+          var t2 = makeToggle('展示全部');
+          var expanded2 = false;
+          t2.addEventListener('click', function () {
+            expanded2 = !expanded2;
+            body2.textContent = expanded2 ? text : text.slice(0, TEXT_LIMIT) + ' …';
+            t2.textContent = expanded2 ? '收起' : '展示全部';
+          });
+          card2.appendChild(t2);
+        }
+        if (ev.detail && typeof ev.detail === 'object') {
+          var t3 = makeToggle('详情');
+          attachExpandable(t3, card2, '收起详情', '详情', function () { return detailPre(ev.detail); });
+          card2.appendChild(t3);
+        }
+        content.appendChild(card2);
+        return wrap;
+      }
+
+      /* 文本（agent 输出）→ 聊天气泡 */
+      var bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      var longT = text.length > TEXT_LIMIT;
+      bubble.textContent = longT ? text.slice(0, TEXT_LIMIT) + ' …' : text;
+      content.appendChild(bubble);
+      if (longT) {
+        var t4 = makeToggle('展示全部');
+        var expanded4 = false;
+        t4.addEventListener('click', function () {
+          expanded4 = !expanded4;
+          bubble.textContent = expanded4 ? text : text.slice(0, TEXT_LIMIT) + ' …';
+          t4.textContent = expanded4 ? '收起' : '展示全部';
+        });
+        meta.appendChild(t4);
+      }
+      if (ev.detail && typeof ev.detail === 'object') {
+        var t5 = makeToggle('详情');
+        attachExpandable(t5, content, '收起详情', '详情', function () { return detailPre(ev.detail); });
+        meta.appendChild(t5);
+      }
+      return wrap;
+    }
+
+    /* ===== 数据加载与 2s 轮询增量 ===== */
+    function isNearBottom() {
+      return elEvents.scrollHeight - elEvents.scrollTop - elEvents.clientHeight < 80;
+    }
+    function stopPoll() {
+      if (state.pollTimer !== null) { clearInterval(state.pollTimer); state.pollTimer = null; }
+    }
+    function startPoll() {
+      stopPoll();
+      state.pollTimer = setInterval(function () {
+        if (document.hidden || !state.selected || !elFollow.checked) return;
+        fetchEvents(false);
+      }, 2000);
+    }
+
+    function selectRun(taskId) {
+      state.selected = taskId;
+      state.events = [];
+      state.consumed = 0;
+      state.degraded = false;
+      state.error = null;
+      state.freshEvents = true;
+      state.runStatus = null;
+      updateLogHead();
+      renderRuns(); renderEvents();
+      fetchEvents(true);
+    }
+
+    function fetchEvents(reset) {
+      if (!state.selected) return Promise.resolve();
+      var cursor = reset ? '0' : String(state.consumed);
+      return callTool('read_agent_run', { taskId: state.selected, cursor: cursor, limit: 200 })
+        .then(function (data) {
+          if (!data) throw new Error('返回数据为空');
+          state.degraded = !!(data.meta && data.meta.degraded);
+          if (data.status === 'task_not_found') {
+            state.error = '任务不存在（可能已被清理）';
+            renderEvents(); setStatus('error', '任务不存在');
+            stopPoll();
+            return;
+          }
+          if (data.status === 'no_log') {
+            state.error = '没有可读日志：' + (data.reason || '未知原因');
+            renderEvents(); setStatus('error', '无日志');
+            stopPoll();
+            return;
+          }
+          var evs = data.events || [];
+          var stick = isNearBottom();
+          state.events = reset ? evs : state.events.concat(evs);
+          state.consumed = Number(data.cursor || '0') + evs.length;
+          state.runStatus = data.status;
+          renderEvents();
+          if ((reset || evs.length > 0) && stick) elEvents.scrollTop = elEvents.scrollHeight;
+
+          var labelMap = {
+            ok: '历史回放',
+            running: '运行中 · 每 2s 增量',
+            degraded: '降级读取（部分格式未识别）',
+          };
+          var label = labelMap[data.status] || String(data.status);
+          setStatus(data.status === 'running' ? 'running' : (state.degraded ? 'error' : 'ok'),
+            label + ' · ' + state.events.length + ' 事件');
+
+          // 是否继续轮询：运行中或有未读完的页 → 继续；否则停止（历史任务读尽）
+          if (data.status === 'running' || data.nextCursor !== null) {
+            startPoll();
+          } else {
+            stopPoll();
+          }
+        })
+        .catch(function (err) {
+          state.error = '读取失败：' + err.message;
+          renderEvents();
+          setStatus('error', '读取失败');
+        });
+    }
+
+    /* ===== 视图分流与切换 ===== */
+    /** 切换列表页 / 日志页（两页分开，body class 控制显隐）。 */
+    function applyView(v) {
+      view = v;
+      document.body.classList.toggle('view-list', v === 'list');
+      document.body.classList.toggle('view-log', v === 'log');
+      elTitle.textContent = v === 'log' ? '外部 Agent 日志' : '外部 Agent';
+    }
+
+    function boot(displayMode) {
+      if (displayMode === 'inline') {
+        document.body.classList.add('inline-card');
+        applyView('list');
+        renderRuns();
+        loadRuns(true).then(reportSize);
+        inlineTimer = setInterval(function () {
+          if (document.hidden) return;
+          loadRuns().then(reportSize); // 轮询：不重播进入动画
+        }, 5000);
+      } else {
+        applyView('list'); // fullscreen 默认进列表页（点击任务才进入日志）
+        loadRuns(true);
+      }
+    }
+
+    /** inline 卡片高度上报（宿主按此渲染时间线卡片） */
+    function reportSize() {
+      if (view !== 'list') return;
+      var h = Math.min((document.body.scrollHeight || 0) + 2, 360);
+      post({ jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: h } });
+    }
+
+    /** 请求宿主切换显示模式（inline 卡片 → fullscreen 日志） */
+    function requestDisplayMode(mode) {
+      return request('ui/request-display-mode', { mode: mode }).then(function (resp) {
+        return (resp && resp.mode) || mode;
+      }).catch(function () { return mode; });
+    }
+
+    /** 卡片中点击某个 Agent：请求全屏并打开该任务的实时日志 */
+    function openLogFor(taskId) {
+      requestDisplayMode('fullscreen').then(function (mode) {
+        if (mode !== 'fullscreen') return;
+        if (inlineTimer !== null) { clearInterval(inlineTimer); inlineTimer = null; }
+        document.body.classList.remove('inline-card');
+        applyView('log');
+        selectRun(taskId);
+      });
+    }
+
+    elBack.addEventListener('click', function () {
+      applyView('list');
+      loadRuns(true); // 返回列表时刷新（状态可能有变化）
+    });
+    elAllRuns.addEventListener('change', function () {
+      state.scope = elAllRuns.checked ? 'all' : 'session';
+      loadRuns(true);
+    });
+    elShowFinished.addEventListener('change', function () {
+      loadRuns(true); // 勾选后带上 includeFinished=true 重新拉取
+    });
+    elRefresh.addEventListener('click', function () {
+      loadRuns(true).then(function () {
+        if (state.selected) {
+          state.freshEvents = true;
+          fetchEvents(true);
+        }
+      });
+    });
+    elFollow.addEventListener('change', function () {
+      if (elFollow.checked) startPoll(); else stopPoll();
+    });
+    window.addEventListener('beforeunload', stopPoll);
+  })();
+  </script>
+</body>
+</html>

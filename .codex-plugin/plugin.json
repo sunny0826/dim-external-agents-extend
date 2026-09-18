@@ -1,0 +1,12 @@
+{
+  "name": "external-agents-extend",
+  "version": "0.1.0",
+  "description": "View execution logs of external agents (kimi / cursor / codex / grok / opencode / zcode) launched by dim.",
+  "interface": {
+    "displayName": "External Agents Extend",
+    "shortDescription": "View external-agent run logs in Dim."
+  },
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}

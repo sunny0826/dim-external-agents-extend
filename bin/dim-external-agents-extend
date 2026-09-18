@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# external-agents-extend CLI entry point。
+# dim 会把插件 bin/ 目录放到 agent 的 exec PATH 上，本文件即命令本体；
+# 复用 server/src/cli.js（与 MCP server 同一套核心逻辑），node 由 dim 运行时提供。
+root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+exec node "$root/server/src/cli.js" "$@"

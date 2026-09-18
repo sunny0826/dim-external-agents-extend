@@ -1,0 +1,366 @@
+{
+  "generatedAt": "2026-09-17T06:32:40.869Z",
+  "t51": [
+    {
+      "agentType": "kimi",
+      "taskId": "task_1789612549186_4bh3fb",
+      "status": "completed",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp+token",
+        "confidence": "high"
+      },
+      "readMs": 10,
+      "summary": {
+        "events": 308,
+        "kinds": {
+          "meta": 1,
+          "notice": 82,
+          "step": 52,
+          "llm": 27,
+          "usage": 52,
+          "think": 26,
+          "tool_call": 31,
+          "tool_result": 31,
+          "text": 6
+        },
+        "toolCall": 31,
+        "toolResult": 31,
+        "toolError": 0,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "1.5"
+      }
+    },
+    {
+      "agentType": "kimi",
+      "taskId": "task_1789612285135_5mqnkj",
+      "status": "completed",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp+token",
+        "confidence": "high"
+      },
+      "readMs": 5,
+      "summary": {
+        "events": 744,
+        "kinds": {
+          "meta": 1,
+          "notice": 167,
+          "step": 140,
+          "llm": 71,
+          "usage": 140,
+          "think": 70,
+          "tool_call": 74,
+          "tool_result": 74,
+          "text": 7
+        },
+        "toolCall": 74,
+        "toolResult": 74,
+        "toolError": 1,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "1.5"
+      }
+    },
+    {
+      "agentType": "kimi",
+      "taskId": "task_1789610995711_rl4d96",
+      "status": "completed",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp",
+        "confidence": "low"
+      },
+      "readMs": 11,
+      "summary": {
+        "events": 1267,
+        "kinds": {
+          "meta": 1,
+          "notice": 302,
+          "step": 238,
+          "llm": 120,
+          "usage": 238,
+          "think": 76,
+          "tool_call": 134,
+          "tool_result": 134,
+          "text": 24
+        },
+        "toolCall": 134,
+        "toolResult": 134,
+        "toolError": 3,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "1.5"
+      }
+    },
+    {
+      "agentType": "kimi",
+      "taskId": "task_1789610995610_kp0bkh",
+      "status": "completed",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp+token",
+        "confidence": "high"
+      },
+      "readMs": 3,
+      "summary": {
+        "events": 415,
+        "kinds": {
+          "meta": 1,
+          "notice": 110,
+          "step": 76,
+          "llm": 39,
+          "usage": 76,
+          "think": 23,
+          "tool_call": 42,
+          "tool_result": 42,
+          "text": 6
+        },
+        "toolCall": 42,
+        "toolResult": 42,
+        "toolError": 1,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "1.5"
+      }
+    },
+    {
+      "agentType": "cursor",
+      "taskId": "task_1789625830322_juuvsx",
+      "status": "completed",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp",
+        "confidence": "medium"
+      },
+      "readMs": 28,
+      "summary": {
+        "events": 435,
+        "kinds": {
+          "meta": 1,
+          "notice": 2,
+          "text": 8,
+          "tool_call": 212,
+          "tool_result": 212
+        },
+        "toolCall": 212,
+        "toolResult": 212,
+        "toolError": 3,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "cursor-acp-store/1"
+      }
+    },
+    {
+      "agentType": "cursor",
+      "taskId": "task_1789624314591_8q4662",
+      "status": "cancelled",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp",
+        "confidence": "medium"
+      },
+      "readMs": 38,
+      "summary": {
+        "events": 429,
+        "kinds": {
+          "meta": 1,
+          "notice": 2,
+          "text": 10,
+          "tool_call": 208,
+          "tool_result": 208
+        },
+        "toolCall": 208,
+        "toolResult": 208,
+        "toolError": 2,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "cursor-acp-store/1"
+      }
+    },
+    {
+      "agentType": "cursor",
+      "taskId": "task_1789623258114_j0vn0y",
+      "status": "completed",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp",
+        "confidence": "medium"
+      },
+      "readMs": 33,
+      "summary": {
+        "events": 365,
+        "kinds": {
+          "meta": 1,
+          "notice": 2,
+          "text": 16,
+          "tool_call": 173,
+          "tool_result": 173
+        },
+        "toolCall": 173,
+        "toolResult": 173,
+        "toolError": 1,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "cursor-acp-store/1"
+      }
+    },
+    {
+      "agentType": "cursor",
+      "taskId": "task_1789621895702_r62w1i",
+      "status": "completed",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp",
+        "confidence": "medium"
+      },
+      "readMs": 23,
+      "summary": {
+        "events": 221,
+        "kinds": {
+          "meta": 1,
+          "notice": 2,
+          "text": 4,
+          "tool_call": 107,
+          "tool_result": 107
+        },
+        "toolCall": 107,
+        "toolResult": 107,
+        "toolError": 0,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "cursor-acp-store/1"
+      }
+    },
+    {
+      "agentType": "codex",
+      "taskId": "task_1789549738975_wwrh08",
+      "status": "cancelled",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp",
+        "confidence": "medium"
+      },
+      "readMs": 17,
+      "summary": {
+        "events": 21,
+        "kinds": {
+          "meta": 1,
+          "step": 1,
+          "notice": 10,
+          "text": 2,
+          "tool_call": 2,
+          "usage": 2,
+          "tool_result": 2,
+          "think": 1
+        },
+        "toolCall": 2,
+        "toolResult": 2,
+        "toolError": 0,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "0.153.4"
+      }
+    },
+    {
+      "agentType": "codex",
+      "taskId": "task_1789549700633_50gvvd",
+      "status": "failed",
+      "mapping": {
+        "status": "unmatched",
+        "matchedBy": null,
+        "confidence": null
+      }
+    },
+    {
+      "agentType": "codex",
+      "taskId": "task_1789404406030_9e9ntk",
+      "status": "completed",
+      "mapping": {
+        "status": "matched",
+        "matchedBy": "timestamp",
+        "confidence": "medium"
+      },
+      "readMs": 7,
+      "summary": {
+        "events": 140,
+        "kinds": {
+          "meta": 1,
+          "step": 1,
+          "notice": 10,
+          "text": 7,
+          "tool_call": 31,
+          "usage": 31,
+          "tool_result": 31,
+          "think": 28
+        },
+        "toolCall": 31,
+        "toolResult": 31,
+        "toolError": 1,
+        "degraded": false,
+        "warnings": 0,
+        "formatVersion": "0.153.4"
+      }
+    }
+  ],
+  "t53": [
+    {
+      "case": "empty-wire",
+      "events": 0,
+      "degraded": false,
+      "nextCursor": "0"
+    },
+    {
+      "case": "format-drift",
+      "sourceLines": 300,
+      "injected": 4,
+      "events": 304,
+      "kinds": {
+        "meta": 1,
+        "notice": 27,
+        "step": 67,
+        "llm": 35,
+        "usage": 67,
+        "think": 18,
+        "tool_call": 39,
+        "tool_result": 39,
+        "text": 7,
+        "unknown": 4
+      },
+      "toolCall": 39,
+      "toolResult": 39,
+      "toolError": 2,
+      "degraded": true,
+      "warnings": 4,
+      "formatVersion": "1.5",
+      "warningCodes": [
+        "unknown_top_type",
+        "unknown_event_type",
+        "malformed_line",
+        "malformed_loop_event"
+      ]
+    },
+    {
+      "case": "big-kimi-wire",
+      "fileSizeMB": 10.1,
+      "readMs": 35,
+      "events": 2892,
+      "degraded": false
+    },
+    {
+      "case": "big-codex-rollout",
+      "fileSizeMB": 599.6,
+      "readMs": 15,
+      "events": 68,
+      "degraded": false
+    },
+    {
+      "case": "concurrent-reads",
+      "runs": 20,
+      "ok": 20,
+      "failed": 0,
+      "totalMs": 23
+    }
+  ]
+}
