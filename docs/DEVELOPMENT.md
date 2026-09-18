@@ -73,7 +73,7 @@
 
 - 安装到 `<DIMCODE_HOME>/plugins/` 并记录 `resolvedRevision`；安装/卸载：删除 `<DIMCODE_HOME>/plugins/external-agents-extend` 目录即可。
 - **本地开发**：`~/.agents/plugins/external-agents-extend` 软链接指向本仓库（保持单一真实来源）；改动后需重启桌面端生效（注意重启存在启动竞态：等 ~20 秒再开新会话，见 HANDOFF 2.4）。
-- **形态**：开发版本（插件版本号 0.1.0，**尚未打 tag**）；零第三方依赖、无构建步骤、资源全内联（无外部域）。
+- **形态**：发布版 **v0.0.1**（2026-09-18 打 tag）；零第三方依赖、无构建步骤、资源全内联（无外部域）。
 
 ## 开工入口
 

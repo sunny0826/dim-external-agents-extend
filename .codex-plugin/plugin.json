@@ -1,6 +1,6 @@
 {
   "name": "external-agents-extend",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "View execution logs of external agents (kimi / cursor / codex / grok / opencode / zcode) launched by dim.",
   "interface": {
     "displayName": "External Agents Extend",
