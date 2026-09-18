@@ -136,7 +136,8 @@ rm -rf <DIMCODE_HOME>/plugins/external-agents-extend
 - 验证证据：[docs/verification/](docs/verification/)
 
 ```bash
-mise exec -- node --test   # 运行全部测试（90 项）
+mise exec -- node --test                 # 运行全部测试（90 项）
+mise exec -- node scripts/validate.js    # 结构与版本一致性校验（与 CI 相同）
 ```
 
 ## 许可证

@@ -136,7 +136,8 @@ Or remove it from Dim desktop → Plugins. The plugin keeps no persistent state 
 - Verification evidence: [docs/verification/](docs/verification/)
 
 ```bash
-mise exec -- node --test   # run all tests (90)
+mise exec -- node --test                 # run all tests (90)
+mise exec -- node scripts/validate.js    # structure & version consistency checks (same as CI)
 ```
 
 ## License
