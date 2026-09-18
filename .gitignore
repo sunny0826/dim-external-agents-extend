@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Node.js
+node_modules/
+
+# Editors / IDEs
+.idea/
+.vscode/
+
+# Logs and temp files
+*.log
+*.tmp

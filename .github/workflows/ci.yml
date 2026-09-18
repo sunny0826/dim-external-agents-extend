@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+jobs:
+  test:
+    name: Tests & validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mise toolchain (Node from mise.toml)
+        uses: jdx/mise-action@v2
+
+      - name: Validate structure & version consistency
+        run: mise exec -- node scripts/validate.js
+
+      - name: Run test suite
+        run: mise exec -- node --test
