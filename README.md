@@ -1,4 +1,4 @@
-# External Agents Extend
+# Dim External Agents Extend
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -75,10 +75,6 @@ ln -s "$(pwd)" ~/.agents/plugins/external-agents-extend
 - 事件流按类型分块：消息气泡、工具调用（「工作过程」折叠块，展开可看每一步）、系统事件（可折叠）
 - 「跟随」开启时自动滚动到最新；运行中的任务每 2 秒增量追加
 - 勾选「全部会话」看历史任务，勾选「显示已结束」看已完成 / 已取消的任务
-
-### 会话内嵌卡片
-
-![会话卡片](docs/images/panel-inline.png)
 
 ### CLI
 
