@@ -16,9 +16,13 @@ description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex /
 - **上下文出现 `[外部 Agent 完成]` 注入**（hook 在任务结束后的下一轮自动补报）时：优先用 `read_agent_run` 读取该任务结果并主动简报，失败任务说明原因；
 - **用户通过输入区的「技能」按钮或斜杠菜单选中本技能（`/external-agents-extend`）时**：不要反问，**立即调用 `open_agent_run_log` 打开列表页**（默认本会话；要看全部历史时提示勾选「全部会话」）。
 
+> 若用户的问题是「外部 agent 的会话名太乱 / 分不清 / 想统一命名」，那是另一件事——用 `external-session-names` 技能（`list_external_sessions` / `rename_external_sessions`），不要用本技能。
+
 ## 工具
 
-1. **`list_agent_runs`** — 列出任务（可按 `agentType` / `status` 过滤，默认最新在前）。`scope` 默认 `session`（只列当前会话委托的任务），传 `all` 看全部历史。返回 `taskId` 与派发时选择的 `model`，供后续读取。
+1. **`list_agent_runs`** — 列出任务（可按 `agentType` / `status` 过滤，默认最新在前）。`scope` 默认 `session`（只列当前会话委托的任务），传 `all` 看全部历史；**用户点名某个会话时传 `sessionId`**（如 `sess_1789815375220_xj6kk13bpc`）。
+   - **回退语义**：解析到的会话没有任务时，结果会回退为全部会话并带 `scopeFallback`（含原因），每条任务带 `sessionId`——所以「列表里出现别的会话的任务」是有意为之，要如实说明来源，不要说成本会话的。
+   - 返回 `taskId`、所属 `sessionId` 与派发时选择的 `model`，供后续读取。
 2. **`read_agent_run`** — 按 `taskId` 读取归一化事件流（工具调用 / 工具结果 / 文本 / 思考 / 用量 / 步骤），游标分页；`session.model` 为会话实际使用的模型（可探测到时，如 kimi-code/k3、gpt-6-astra）。
    - 返回的 `status` 语义：
      - `ok`：完整历史；

@@ -16,8 +16,9 @@ DimAgent 通过 `agent create_external` 把任务交给外部 Agent（Kimi、Cur
 - **执行日志** — 点击任务查看完整事件流：工具调用、文件读取、命令输出、思考过程与错误信息；Agent 文本按 Markdown 渲染（标题、列表、表格、代码块）；运行中的任务每 2 秒增量刷新
 - **会话内嵌卡片** — 在对话里直接显示任务卡片，点击即全屏打开实时日志
 - **自动状态提示** — 每轮对话自动感知本会话运行中的外部任务；任务完成/失败后主动补报结果；新任务启动后自动打开实时日志面板，不用主动问
-- **CLI** — `list` / `show` / `tail` 三个命令，支持 `--json`，便于脚本消费
-- **纯本机** — 只读本地数据、不联网，不修改 dim 或任何 Agent 的原始文件
+- **会话名称统一** — 各外部 Agent 会攒下五花八门的会话名（`Help`、`Code Review Agent`、`New session - 2026-09-16T…`），插件把它们统一成一种格式：`[codex] 09-19 20:31 · 修复 GUO-108 审查问题`；并可把统一名称写回 Agent 自己的会话存储，让它的 `resume` 列表也变干净
+- **CLI** — `list` / `show` / `tail` / `sessions` / `rename` 命令，支持 `--json`，便于脚本消费
+- **纯本机** — 只读本地数据、不联网；不写 dim 自己的数据库，唯一的写入是你显式确认过的会话改名（写前自动备份）
 
 ## 要求
 
@@ -58,16 +59,21 @@ ln -s "$(pwd)" ~/.agents/plugins/external-agents-extend
 - 「列出最近的外部 Agent 任务」
 - 「这次委托为什么失败？」
 
-插件提供四个工具，模型会自动调用：
+插件提供七个工具，模型会自动调用：
 
 | 工具 | 作用 |
 | --- | --- |
-| `list_agent_runs` | 列出委托任务（可按 Agent 类型、状态过滤） |
+| `list_agent_runs` | 列出委托任务（可按 Agent 类型、状态过滤；`sessionId` 指定某个 dim 会话） |
 | `read_agent_run` | 读取某个任务的执行日志（分页 + 增量轮询） |
+| `list_external_sessions` | 列出各 Agent 自己的会话，带统一展示名 |
+| `rename_external_sessions` | 把统一名称写回 Agent 的会话存储（默认只预览） |
+| `auto_name_sessions` | 回填更早的 dim 委托会话名称 |
+| `restore_backups` | 从备份目录回滚改名 |
+| `get_settings` / `set_auto_name` | 读 / 改自动命名开关（面板上的开关就走这两个工具） |
 | `show_external_agents` | 在对话中显示任务卡片（点击进实时日志） |
 | `open_agent_run_log` | 打开全屏日志面板 |
 
-也可以从输入区的「技能」按钮或斜杠菜单选择 `/external-agents-extend`，直接打开日志面板。
+也可以从输入区的「技能」按钮或斜杠菜单选择 `/external-agents-extend` 直接打开日志面板，或选择 `/external-session-names` 整理会话名称。
 
 ### 全屏日志面板
 
@@ -77,6 +83,58 @@ ln -s "$(pwd)" ~/.agents/plugins/external-agents-extend
 - 事件流按类型分块：Agent 文本（Markdown 渲染，含表格）、工具调用（「工具调用」折叠组，展开可看每一步）、思考与系统事件（可折叠）
 - 「跟随」开启时自动滚动到最新；运行中的任务每 2 秒增量追加
 - 勾选「全部会话」看历史任务，勾选「显示已结束」看已完成 / 已取消的任务
+
+### 会话名称统一
+
+各外部 Agent 各自维护会话存储，标题五花八门：Codex 中英混杂且有泛化标题（`Help`、`Simplify and refactor codebase`），Cursor 是笼统英文（`Code Review Agent`），OpenCode 用 `New session - 2026-09-16T14:12:03.160Z`，Kimi 有时把整段 prompt 当标题，Grok 的目录名是 URL 编码路径。插件把它们统一成一种格式，并标出来源：
+
+```
+[codex] 09-19 20:31 · [dim] 修复 GUO-108 审查问题     ← 由 dim 委托产生
+[codex] 09-19 12:31 · [手动] 维护本地 skill           ← 其它来源
+```
+
+名称按以下顺序推导：
+
+1. **dim 任务标题** —— dim 委托过的会话优先用它，本来就是人话；
+2. **会话自身标题** —— 除非它是通用标题（`Help`、`New session - <ISO>`、纯 UUID 或路径，或只剩委托前缀的「你是实现者」）；带委托前缀的会先剥掉前缀（`你是 Project V 的执行开发者。任务：时间轴重构` → `任务：时间轴重构`）；
+3. **会话首条 prompt** —— 跳过委托包装样板（`You are an agent handling a delegated task…`），含 Issue 编号（`GUO-108`）的行优先；
+4. **兜底** —— `未命名会话 · <工作目录末段 或 会话短码>`。
+
+#### 自动命名（默认关闭）
+
+开启之后，dim 委托任务，hook 就会**自动**把该外部会话的泛化标题改成统一名——不用在对话里说，也不用敲命令。**默认关闭**：改名会写进别的工具自己的存储，需要你显式打开。
+
+三种等价的开法：
+
+- **面板里点**：打开全屏日志面板，右上角「自动命名」开关点一下；
+- **对话里说**：直接说「把自动命名打开 / 关掉」（模型调用 `set_auto_name`）；
+- **命令行**：`dim-external-agents-extend autoname --enable` / `--disable`（写 `~/.dimcode/ea-extend-config.json`）。
+
+（也可以手工写 `~/.dimcode/ea-extend-config.json` 的 `{ "autoName": true }`，或设环境变量 `EA_EXT_AUTO_NAME=on`——注意 macOS 桌面 App 不继承 shell 的 export，配置文件才可靠。优先级：环境变量 > 配置文件 > 默认关闭。）
+
+开启后：
+
+- 只处理**能关联到 dim 任务**的会话，你手动开的会话一律不碰；
+- 只改写**泛化标题**；名称已有信息量、或你自己设过标题的，一律不动；
+- 只回溯最近 **2 小时**内委托的任务，不翻旧账；
+- 每次写入前自动备份，每个任务只处理一次，10 秒节流。
+
+想回填更早的会话，显式跑一次：`dim-external-agents-extend autoname --window 1440 --dry-run`（确认后去掉 `--dry-run`）。
+
+#### 写回各 Agent 自己的存储
+
+如果你想让各 Agent 自己的会话列表也变干净，插件可以把统一名称写回：
+
+| Agent | 写回位置 | 状态 |
+| --- | --- | --- |
+| Codex | `~/.codex/session_index.jsonl` → `thread_name` | ✅ |
+| Kimi | `<会话目录>/state.json` → `title` + `isCustomTitle: true` | ✅ |
+| Cursor | `~/.cursor/acp-sessions/<uuid>/meta.json` → `title` | ✅ |
+| Grok | `<会话目录>/summary.json` → `generated_title` + `title_is_manual: true` | ✅ |
+| OpenCode | `~/.local/share/opencode/opencode.db` → `session.title` | ✅ |
+| ZCode | `~/.zcode/cli/db/db.sqlite` → `session.title` + `title_source: 'custom'` | ✅ |
+
+改名安全约束：手动改名必须显式点名会话（没有「全部重命名」）；默认只出预览，写入需要显式确认；备份落在 `~/.dimcode/ea-extend-backups/<时间戳>/`；你自己设过标题的会话默认跳过，除非强制。建议在对应 Agent 空闲时改名——Codex 会重写自己的索引，Grok 有 `summary.json.lock`；OpenCode 的库可能有好几个 GB，因此只备份受影响的那一行。不想要 `[dim]` / `[手动]` 标记时传 `sourcePrefix: false`。每次写入前都备份到 `~/.dimcode/ea-extend-backups/<时间戳>/`，用 `dim-external-agents-extend restore` 可按字节回滚最近一次。
 
 ### CLI
 
@@ -88,6 +146,10 @@ dim-external-agents-extend list --type cursor      # 只看 cursor
 dim-external-agents-extend show <taskId>           # 查看某个任务的日志
 dim-external-agents-extend tail <taskId>           # 持续跟踪（默认 2s 间隔）
 dim-external-agents-extend show <taskId> --json    # JSON 输出，便于脚本消费
+dim-external-agents-extend sessions --type codex   # 统一命名的会话清单
+dim-external-agents-extend rename --keys <key>     # 预览改名（加 --apply 才写入）
+dim-external-agents-extend autoname --window 1440 --dry-run   # 回填更早的会话
+dim-external-agents-extend restore                 # 预览回滚改名
 ```
 
 ## 支持的 Agent

@@ -408,6 +408,7 @@
     <label class="scope"><input type="checkbox" id="allRuns"> 全部会话</label>
     <label class="scope"><input type="checkbox" id="showFinished"> 显示已结束</label>
     <label class="follow"><input type="checkbox" id="follow" checked> 跟随</label>
+    <label class="follow" id="autoNameWrap" title="开启后，dim 委托外部 Agent 时会自动把该会话的泛化标题改成统一名（[dim] …）；默认关闭"><input type="checkbox" id="autoName"> 自动命名</label>
     <button class="refresh" id="refresh" title="重新加载">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       刷新
@@ -492,6 +493,7 @@
       error: null,
       pollTimer: null,
       scope: 'session', // 'session'（默认，本会话）| 'all'（全部历史）
+      scopeFallback: null, // 服务端在「本会话没有任务」时回退为 all 的说明
       freshRuns: true, // 列表进入动画：一次性，轮询重建不重播
       freshEvents: false, // 事件流进入动画：一次性
       runStatus: null, // 当前任务的读取状态（running 时显示流式指示器）
@@ -505,6 +507,8 @@
     var elDot = document.getElementById('dot');
     var elStatus = document.getElementById('statusText');
     var elFollow = document.getElementById('follow');
+    var elAutoName = document.getElementById('autoName');
+    var elAutoNameWrap = document.getElementById('autoNameWrap');
     var elRefresh = document.getElementById('refresh');
     var elTitle = document.getElementById('title');
     var elBack = document.getElementById('back');
@@ -614,6 +618,13 @@
         elRuns.appendChild(ph);
         return;
       }
+      /* 回退说明：让「本会话没有任务、显示的是全部会话」这件事在列表里可见，而不是静默为空 */
+      if (state.scopeFallback) {
+        var hint = document.createElement('div');
+        hint.className = 'placeholder';
+        hint.textContent = state.scopeFallback.reason;
+        elRuns.appendChild(hint);
+      }
       state.runs.forEach(function (r) {
         var item = document.createElement('div');
         item.className = 'run' + (r.taskId === state.selected ? ' selected' : '');
@@ -676,11 +687,19 @@
         includeFinished: elShowFinished.checked,
       }).then(function (data) {
         state.runs = (data && data.runs) || [];
-        // 服务端在无法确定活跃会话时会回退为 all，这里保持两边状态一致
+        // 服务端在无法确定活跃会话、或本会话没有任务时会回退为 all，这里保持两边状态一致
         if (data && (data.scope === 'session' || data.scope === 'all')) {
           state.scope = data.scope;
+          state.scopeFallback = (data && data.scopeFallback) || null;
           elAllRuns.checked = data.scope === 'all';
-          elScopeBadge.textContent = data.scope === 'all' ? '全部会话' : '本会话';
+          elScopeBadge.textContent = state.scopeFallback
+            ? '全部会话（本会话无任务）'
+            : data.scope === 'all'
+              ? '全部会话'
+              : '本会话';
+          elScopeBadge.title = state.scopeFallback
+            ? state.scopeFallback.reason
+            : '默认只显示本会话委托的外部 Agent';
         }
         renderRuns();
         // inline 卡片：状态行汇总运行中数量
@@ -1496,6 +1515,7 @@
       } else {
         applyView('list'); // fullscreen 默认进列表页（点击任务才进入日志）
         loadRuns(true);
+        loadSettings(); // 反映「自动命名」开关的真实状态
       }
     }
 
@@ -1546,6 +1566,49 @@
     elFollow.addEventListener('change', function () {
       if (elFollow.checked) startPoll(); else stopPoll();
     });
+
+    /* ===== 自动命名开关（默认关闭）：读设置 → 反映到开关；改动 → 写配置 ===== */
+    var AUTO_NAME_TITLE =
+      '开启后，dim 委托外部 Agent 时会自动把该会话的泛化标题改成统一名（[dim] …）；' +
+      '只动 dim 委托、只动泛化标题、写前备份，且只回溯 2 小时。默认关闭。';
+
+    function applyAutoNameState(autoName) {
+      var enabled = Boolean(autoName && autoName.enabled);
+      elAutoName.checked = enabled;
+      var source = autoName && autoName.source;
+      elAutoNameWrap.title =
+        AUTO_NAME_TITLE +
+        (enabled ? '（当前：已开启' + (source === 'env' ? '，由环境变量决定' : '') + '）' : '（当前：已关闭）');
+    }
+
+    function loadSettings() {
+      return callTool('get_settings', {})
+        .then(function (data) {
+          applyAutoNameState(data && data.autoName);
+        })
+        .catch(function () {
+          /* 读不到设置：不禁用开关，避免误判；点击时会再尝试写 */
+        });
+    }
+
+    elAutoName.addEventListener('change', function () {
+      var want = elAutoName.checked;
+      elAutoName.disabled = true;
+      callTool('set_auto_name', { enabled: want })
+        .then(function (data) {
+          if (!data || data.status !== 'ok') throw new Error((data && data.message) || '保存失败');
+          applyAutoNameState(data.autoName);
+          elStatus.textContent = want ? '自动命名已开启' : '自动命名已关闭';
+        })
+        .catch(function (err) {
+          elAutoName.checked = !want; // 写失败：回到原状态，不假装成功
+          elStatus.textContent = '自动命名开关未保存：' + String((err && err.message) || err);
+        })
+        .then(function () {
+          elAutoName.disabled = false;
+        });
+    });
+
     window.addEventListener('beforeunload', stopPoll);
   })();
   </script>

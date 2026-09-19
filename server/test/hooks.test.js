@@ -55,9 +55,13 @@ function runHook(dbPath, opts) {
     env: {
       ...process.env,
       DIM_EXT_HOOK_DB: dbPath,
-      HOME: '/nonexistent-home-for-hook-test',
+      HOME: o.home || '/nonexistent-home-for-hook-test',
       EA_EXT_FINISHED_STATE: o.finishedStatePath || tmpPath('ea-fin-', 'finished.json'),
       EA_EXT_ACTIVE_SESSION: o.activeSessionPath || path.join(os.tmpdir(), 'ea-test-active-session.json'),
+      /* 自动命名：隔离状态文件并关掉节流，避免测试互相干扰 */
+      EA_EXT_AUTONAME_STATE: o.autonameStatePath || tmpPath('ea-autoname-', 'auto-named.json'),
+      EA_EXT_AUTONAME_THROTTLE_MS: '0',
+      ...(o.env || {}),
     },
     ...(o.stdin !== undefined ? { input: o.stdin } : {}),
     encoding: 'utf8',
@@ -239,8 +243,11 @@ function runStop(dbPath, stdinObj, statePath, opts) {
         DIM_EXT_HOOK_DB: dbPath,
         EA_EXT_HOOK_STATE: statePath,
         EA_EXT_DELEGATED_STATE: o.delegatedStatePath || tmpPath('ea-deleg-', 'delegated.json'),
-        HOME: '/nonexistent-home-for-hook-test',
+        HOME: o.home || '/nonexistent-home-for-hook-test',
         EA_EXT_ACTIVE_SESSION: o.activeSessionPath || path.join(os.tmpdir(), 'ea-test-active-session.json'),
+        EA_EXT_AUTONAME_STATE: o.autonameStatePath || tmpPath('ea-autoname-', 'auto-named.json'),
+        EA_EXT_AUTONAME_THROTTLE_MS: '0',
+        ...(o.env || {}),
       },
       input: JSON.stringify(stdinObj || {}),
       encoding: 'utf8',
@@ -549,7 +556,8 @@ test('hook：UserPromptSubmit 记录活跃会话（供列表默认按本会话�
     stdin: JSON.stringify({ sessionId: 'sess_hook_1' }),
   });
   const saved = JSON.parse(fs.readFileSync(activeFile, 'utf8'));
-  assert.equal(saved.sessionId, 'sess_hook_1');
+  /* 新格式：按会话记录最近活跃时间（多会话并存，不再互相覆盖） */
+  assert.ok(saved.sessions && saved.sessions.sess_hook_1 > 0, `应记录 sess_hook_1：${JSON.stringify(saved)}`);
 });
 
 test('on-stop：记录活跃会话', () => {
@@ -557,5 +565,191 @@ test('on-stop：记录活跃会话', () => {
   const activeFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ea-act-')), 'active.json');
   runStop(dbPath, { sessionId: 'sess_hook_2' }, makeStatePath(), { activeSessionPath: activeFile });
   const saved = JSON.parse(fs.readFileSync(activeFile, 'utf8'));
-  assert.equal(saved.sessionId, 'sess_hook_2');
+  assert.ok(saved.sessions && saved.sessions.sess_hook_2 > 0, `应记录 sess_hook_2：${JSON.stringify(saved)}`);
+});
+
+// ===== 全自动会话命名（hooks/auto-name.js）=====
+
+/** kimi 会话 fixture：会话创建时间与 dim 任务时间戳对齐即为「dim 委托」。 */
+function makeKimiSession(home, { id, createdAt, title, isCustomTitle = false }) {
+  const dir = path.join(home, '.kimi-code', 'sessions', 'wd_x', id);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'state.json');
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ id, createdAt, updatedAt: createdAt, title, isCustomTitle, lastPrompt: '' })
+  );
+  fs.appendFileSync(
+    path.join(home, '.kimi-code', 'session_index.jsonl'),
+    `${JSON.stringify({ sessionId: id, sessionDir: dir, workDir: '/tmp/proj' })}\n`
+  );
+  return file;
+}
+
+function readTitle(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8')).title;
+}
+
+test('hook：自动命名默认关闭（opt-in）——不改任何会话', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-autoname-'));
+  const ts = Date.now() - 60 * 1000;
+  const stateFile = makeKimiSession(home, { id: 'session_default_off', createdAt: ts, title: 'New session' });
+  const dbPath = makeDb([
+    {
+      taskId: `task_${ts}_defoff`,
+      status: 'running',
+      metadata: { externalAgentType: 'kimi', taskTitle: 'M9-06 默认关闭' },
+      startedAt: ts,
+    },
+  ]);
+  runHook(dbPath, { home });
+  assert.equal(readTitle(stateFile), 'New session', '默认关闭 → 不自动改名');
+});
+
+test('hook：配置文件 autoName=true 时开启（桌面端唯一可靠的开启方式）', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-autoname-'));
+  const cfgDir = path.join(home, '.dimcode');
+  fs.mkdirSync(cfgDir, { recursive: true });
+  fs.writeFileSync(path.join(cfgDir, 'ea-extend-config.json'), JSON.stringify({ autoName: true }));
+  const ts = Date.now() - 60 * 1000;
+  const stateFile = makeKimiSession(home, { id: 'session_cfg_on', createdAt: ts, title: 'New session' });
+  const dbPath = makeDb([
+    {
+      taskId: `task_${ts}_cfgon0`,
+      status: 'running',
+      metadata: { externalAgentType: 'kimi', taskTitle: 'M9-07 配置开启' },
+      startedAt: ts,
+    },
+  ]);
+  runHook(dbPath, { home });
+  assert.equal(readTitle(stateFile), '[dim] M9-07 配置开启');
+});
+
+test('hook：全自动把 dim 委托会话的泛化标题改成统一名（带 [dim] 标记）', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-autoname-'));
+  const ts = Date.now() - 60 * 1000;
+  const stateFile = makeKimiSession(home, { id: 'session_auto1', createdAt: ts, title: 'New session' });
+  const dbPath = makeDb([
+    {
+      taskId: `task_${ts}_auto1`,
+      status: 'running',
+      metadata: { externalAgentType: 'kimi', taskTitle: '实现 M9-01 自动命名' },
+      startedAt: ts,
+    },
+  ]);
+
+  const out = runHook(dbPath, { home, env: { EA_EXT_AUTO_NAME: 'on' } });
+  assert.equal(readTitle(stateFile), '[dim] 实现 M9-01 自动命名');
+  assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).isCustomTitle, true);
+  assert.ok(!out.includes('[dim] '), '改名结果不应出现在 hook 的会话输出里（静默）');
+});
+
+test('hook：全自动只动「泛化标题的 dim 委托会话」——名称已够好 / 自定义标题 / 非 dim 委托都不动', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-autoname-'));
+  const ts = Date.now() - 60 * 1000;
+  const okFile = makeKimiSession(home, { id: 'session_ok', createdAt: ts, title: '实现 M9-02 时间轴' });
+  const customFile = makeKimiSession(home, {
+    id: 'session_custom',
+    createdAt: ts + 1000,
+    title: 'New session',
+    isCustomTitle: true,
+  });
+  const manualFile = makeKimiSession(home, { id: 'session_manual', createdAt: ts + 900_000, title: 'Help' });
+  const dbPath = makeDb([
+    {
+      taskId: `task_${ts}_ok0000`,
+      status: 'completed',
+      metadata: { externalAgentType: 'kimi', taskTitle: '实现 M9-02 时间轴' },
+      startedAt: ts,
+    },
+    {
+      taskId: `task_${ts + 1000}_cus000`,
+      status: 'completed',
+      metadata: { externalAgentType: 'kimi', taskTitle: 'M9-03 自定义标题保护' },
+      startedAt: ts + 1000,
+    },
+  ]);
+
+  runHook(dbPath, { home, env: { EA_EXT_AUTO_NAME: 'on' } });
+  assert.equal(readTitle(okFile), '实现 M9-02 时间轴', '名称已够好 → 不动');
+  assert.equal(readTitle(customFile), 'New session', '你自定义过标题 → 不动');
+  assert.equal(readTitle(manualFile), 'Help', '非 dim 委托（没有对应任务）→ 不动');
+});
+
+test('hook：EA_EXT_AUTO_NAME=off 时完全不改名', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-autoname-'));
+  const ts = Date.now() - 60 * 1000;
+  const stateFile = makeKimiSession(home, { id: 'session_off', createdAt: ts, title: 'New session' });
+  const dbPath = makeDb([
+    {
+      taskId: `task_${ts}_off000`,
+      status: 'running',
+      metadata: { externalAgentType: 'kimi', taskTitle: 'M9-04 关闭开关' },
+      startedAt: ts,
+    },
+  ]);
+
+  runHook(dbPath, { home, env: { EA_EXT_AUTO_NAME: 'off' } });
+  assert.equal(readTitle(stateFile), 'New session');
+});
+
+test('hook：窗口外的老任务不回溯改名', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-autoname-'));
+  const ts = Date.now() - 5 * 60 * 60 * 1000; // 5 小时前
+  const stateFile = makeKimiSession(home, { id: 'session_old', createdAt: ts, title: 'New session' });
+  const dbPath = makeDb([
+    {
+      taskId: `task_${ts}_old000`,
+      status: 'completed',
+      metadata: { externalAgentType: 'kimi', taskTitle: 'M9-05 老任务' },
+      startedAt: ts,
+    },
+  ]);
+
+  runHook(dbPath, { home, env: { EA_EXT_AUTO_NAME: 'on' } });
+  assert.equal(readTitle(stateFile), 'New session', '超出 2 小时窗口 → 不回溯');
+});
+
+/* ===== 活跃会话：多会话映射（并发会话不再互相覆盖）===== */
+
+test('active-session：多个会话都记录，读取取最近活跃的一条', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ea-actmap-')), 'active.json');
+  const { recordActiveSession, readActiveSessions, latestActiveSession } = require('../../hooks/active-session');
+  const saved = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = file;
+  try {
+    recordActiveSession({ session_id: 'sess_a' });
+    recordActiveSession({ session_id: 'sess_b' }); // 后写的更新 → 读取应取它
+    const map = readActiveSessions();
+    assert.deepEqual(Object.keys(map).sort(), ['sess_a', 'sess_b'], '两个会话都要在（不再互相覆盖）');
+    assert.equal(latestActiveSession(), 'sess_b');
+  } finally {
+    if (saved === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = saved;
+  }
+});
+
+test('active-session：兼容旧的单会话格式；超期条目被剪枝', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-actmap-'));
+  const file = path.join(dir, 'active.json');
+  const { readActiveSessions, latestActiveSession, recordActiveSession } = require('../../hooks/active-session');
+  const saved = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = file;
+  try {
+    fs.writeFileSync(file, JSON.stringify({ sessionId: 'sess_old_format', updatedAt: 123 }));
+    assert.equal(latestActiveSession(), 'sess_old_format');
+
+    /* 25 小时前的条目应在下一次写入时被剪掉 */
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ sessions: { sess_stale: Date.now() - 25 * 60 * 60 * 1000 } })
+    );
+    recordActiveSession({ session_id: 'sess_fresh' });
+    const map = readActiveSessions();
+    assert.equal(map.sess_stale, undefined, '超期条目应被剪枝');
+    assert.ok(map.sess_fresh, '新会话应保留');
+  } finally {
+    if (saved === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = saved;
+  }
 });

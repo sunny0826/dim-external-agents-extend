@@ -17,7 +17,7 @@ const path = require('node:path');
 
 const { TOOL_DEFINITIONS, callDataTool } = require('./tools');
 
-const SERVER_INFO = { name: 'external-agents-extend', version: '0.0.2' };
+const SERVER_INFO = { name: 'external-agents-extend', version: '0.1.0' };
 const PROTOCOL_FALLBACK = '2024-11-05';
 const WIRE_LOG = process.env.AGENT_LOG_WIRE_LOG || '';
 
