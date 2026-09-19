@@ -15,7 +15,7 @@ DimAgent 通过 `agent create_external` 把任务交给外部 Agent（Kimi、Cur
 - **任务列表** — 列出本会话（或全部历史）委托给外部 Agent 的任务：Agent 类型、模型、状态、开始时间与耗时
 - **执行日志** — 点击任务查看完整事件流：工具调用、文件读取、命令输出、思考过程与错误信息；Agent 文本按 Markdown 渲染（标题、列表、表格、代码块）；运行中的任务每 2 秒增量刷新
 - **会话内嵌卡片** — 在对话里直接显示任务卡片，点击即全屏打开实时日志
-- **自动状态提示** — 每轮对话自动感知运行中的外部任务；新任务启动后自动展示状态卡片，不用主动问
+- **自动状态提示** — 每轮对话自动感知本会话运行中的外部任务；任务完成/失败后主动补报结果；新任务启动后自动打开实时日志面板，不用主动问
 - **CLI** — `list` / `show` / `tail` 三个命令，支持 `--json`，便于脚本消费
 - **纯本机** — 只读本地数据、不联网，不修改 dim 或任何 Agent 的原始文件
 
@@ -127,7 +127,7 @@ Cursor 的会话日志（`store.db`）本身不记录逐条消息时间，只有
 rm -rf <DIMCODE_HOME>/plugins/external-agents-extend
 ```
 
-或从 Dim 桌面 → Plugins 中移除。插件不写入持久状态（仅在系统临时目录记录当前会话 ID，用于默认过滤，由系统自动清理），删除目录即可完全卸载。
+或从 Dim 桌面 → Plugins 中移除。插件不写入持久状态（仅在系统临时目录记录当前会话 ID 与少量提醒去重状态，用于默认过滤与免打扰，由系统自动清理），删除目录即可完全卸载。
 
 ## 开发
 
@@ -136,7 +136,7 @@ rm -rf <DIMCODE_HOME>/plugins/external-agents-extend
 - 验证证据：[docs/verification/](docs/verification/)
 
 ```bash
-mise exec -- node --test                 # 运行全部测试（90 项）
+mise exec -- node --test                 # 运行全部测试（120 项）
 mise exec -- node scripts/validate.js    # 结构与版本一致性校验（与 CI 相同）
 ```
 

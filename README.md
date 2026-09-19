@@ -15,7 +15,7 @@ When DimAgent hands a task to an external agent (Kimi, Cursor, Codex, ...) via `
 - **Task list** — List tasks delegated to external agents in the current session (or across all history): agent type, model, status, start time, and duration
 - **Execution logs** — Click a task to see the full event stream: tool calls, file reads, command output, reasoning, and errors; agent text is Markdown-rendered (headings, lists, tables, code blocks); running tasks refresh incrementally every 2 seconds
 - **Inline session card** — Show task cards right in the conversation; click one to open the live log fullscreen
-- **Automatic status hints** — Detect running external tasks each turn; new tasks surface a status card automatically, no need to ask
+- **Automatic status hints** — Detect running external tasks in the current session each turn; finished or failed tasks are reported proactively; new tasks open the live log panel automatically, no need to ask
 - **CLI** — `list` / `show` / `tail` commands with `--json` output for scripting
 - **Local-only** — Reads local data only, no network; never modifies dim or any agent's original files
 
@@ -127,7 +127,7 @@ The task record has been cleaned up, or the taskId is wrong.
 rm -rf <DIMCODE_HOME>/plugins/external-agents-extend
 ```
 
-Or remove it from Dim desktop → Plugins. The plugin keeps no persistent state (it only records the current session ID in the system temp directory for default filtering, cleaned up automatically by the system), so deleting the folder removes it completely.
+Or remove it from Dim desktop → Plugins. The plugin keeps no persistent state (it only records the current session ID and small reminder-dedup state in the system temp directory for default filtering and zero-nag behavior, cleaned up automatically by the system), so deleting the folder removes it completely.
 
 ## Development
 
@@ -136,7 +136,7 @@ Or remove it from Dim desktop → Plugins. The plugin keeps no persistent state 
 - Verification evidence: [docs/verification/](docs/verification/)
 
 ```bash
-mise exec -- node --test                 # run all tests (90)
+mise exec -- node --test                 # run all tests (120)
 mise exec -- node scripts/validate.js    # structure & version consistency checks (same as CI)
 ```
 

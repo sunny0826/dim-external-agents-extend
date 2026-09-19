@@ -69,7 +69,7 @@
 - 脚手架/校验脚本：`/Users/guoxudong/.dimcode/v2/skills/plugin-creator/scripts/{create_basic_plugin.py,validate_plugin.py}`（随 skill 版本变化，开工前先读同目录 SKILL.md）。
 - MCP server：stdio 从 plugin root 运行（相对 args 可用）；id 命名空间 `plugin:<name>/<server>`；格式错误的 server 会被**静默丢弃**。
 - MCP App（widget）：工具 `_meta.ui` 严格校验（`resourceUri` 必须 `ui://`；`displayMode` 为 `inline|fullscreen`；`visibility` 为数组）；`ui://` 资源必须返回恰好 1 条 `text/html;profile=mcp-app` 内容；widget 可调同 server 的 `visibility:["app"]` 工具；CSP 只能放声明过的外部域（本方案无需外域，纯本地）。**widget 还必须实现 Ext Apps 握手**（发 `ui/initialize`，params 含 `appInfo`/`appCapabilities`/`protocolVersion:"2026-01-26"`；收 result 后发 `ui/notifications/initialized`）——否则宿主不显示内容且**静默无报错**（iframe opacity:0），详见 `docs/verification/2026-09-17-stage0/RESULTS.md` T0.3 节。
-- hooks：仅支持 10 个事件（SessionStart/SubagentStart/PreToolUse/PermissionRequest/PostToolUse/PreCompact/PostCompact/UserPromptSubmit/SubagentStop/Stop），**无 external agent 生命周期事件——本方案不用 hooks**。
+- hooks：插件声明仅支持 10 个事件（SessionStart/SubagentStart/PreToolUse/PermissionRequest/PostToolUse/PreCompact/PostCompact/UserPromptSubmit/SubagentStop/Stop），**无 external agent 生命周期事件**；声明未识别事件会让整个 hooks 文件被拒（`Unsupported hook event`）。阶段 3 起采用「UserPromptSubmit 状态注入 + PostToolUse 委托捕获 + Stop 提醒」方案（见阶段 3 增强记录）。
 - 运行时：MCP server 用 `node`（即 dim 嵌入式 v24.18.0）；**实测 `node:sqlite`（DatabaseSync）可用**，零第三方依赖即可只读 cursor `store.db`。
   - 版本差异（2026-09-17 复核）：dim node v24.18.0 调用无警告；升级前 mise 全局 node v24.12.0 可用但打印 `ExperimentalWarning`。现已用 `mise.toml` 将开发 node 固定为 **24.18.0**（与运行时同版本），差异消失。
   - 只读实测：`new DatabaseSync(path, {readOnly: true})` 读 cursor `store.db` 成功（样本 blobs 293 行）。
@@ -112,8 +112,9 @@
 - [x] T3.4 空态（无任务/未选中/暂无事件）与错误态（no_log / task_not_found / 读取失败）齐备
 - [x] 验收：桌面端实测面板正常渲染（任务列表 + 事件流）；运行中任务 2s 增量追加（用户确认）
 - [x] **增强（2026-09-17）**：`show_external_agents` 内联卡片（inline MCP App → `ui/request-display-mode` 切 fullscreen、同实例直达实时日志）；dim 内置「子任务」组件不可被插件扩展的限制见风险节第 7 条
-- [x] **增强（2026-09-17）·自动检测**：`hooks/hooks.json` + `hooks/context.js`——`UserPromptSubmit` 命令 hook 每轮静默查询任务库，有运行中外部 Agent 时注入摘要行（类型/标题/taskId/时长 + show_external_agents 指引）；DB 不可用等异常一律静默退出 0。dim hooks 支持 21 个事件（与 Claude Code 同构），插件经 `plugin.json` 的 `"hooks"` 字段声明；CLI 端到端实测注入生效
-- [x] **增强（2026-09-17）·启动即自动展示**：`hooks/on-stop.js`——`Stop` 命令 hook 在新任务启动后的回合末尾以 exit 2（block）注入 `continueReason`，让模型补一轮自动调用 `show_external_agents`；10 分钟窗口 + taskId 去重（tmp 状态文件）+ `stop_hook_active` 防循环。trace 实证：Stop output 含 continueReason、模型自动展示卡片。command hook 协议：stdin JSON、exit 2=block（stderr 优先作 blockMessage）、事件效果表与 matcher 字段见 app.asar `Ron`/`Non` 表
+- [x] **增强（2026-09-17）·自动检测**：`hooks/hooks.json` + `hooks/context.js`——`UserPromptSubmit` 命令 hook 每轮静默查询任务库，注入本会话运行中外部 Agent 摘要（类型/标题/taskId/时长 + open_agent_run_log 指引）；DB 不可用等异常一律静默退出 0。**插件 hooks 白名单仅 10 个事件**（SessionStart / SubagentStart / PreToolUse / PermissionRequest / PostToolUse / PreCompact / PostCompact / UserPromptSubmit / SubagentStop / Stop；宿主本身支持 21 个，但插件声明未识别事件会导致整个 hooks 文件被拒——app.asar `yRt` 白名单 + `Unsupported hook event` 抛错实证）；CLI 端到端实测注入生效
+- [x] **增强（2026-09-17）·启动即自动展示**：`hooks/on-stop.js`——`Stop` 命令 hook 在新任务启动后的回合末尾以 exit 2（block）注入 `continueReason`，让模型补一轮自动调用 `open_agent_run_log`；去重（tmp 状态文件）+ `stop_hook_active` 防循环。trace 实证：Stop output 含 continueReason、模型自动展示卡片。command hook 协议：stdin JSON（**snake_case**：session_id / tool_name / tool_use_id / tool_input / tool_response / stop_hook_active）、exit 2=block（stderr 优先作 blockMessage）；事件效果表与 matcher 字段见 app.asar
+- [x] **增强（2026-09-19）·触发方式强化**：`context.js` 增加「完成/失败补报」（最近 4 小时结束、每 taskId 去重、最多 3 条）并统一按本会话过滤（与 `list_agent_runs` 默认 scope=session 一致）；新增 `hooks/on-post-tool.js`（`PostToolUse`，matcher `agent`）在 `create_external` 委托瞬间捕获任务（`sourceToolCallId` 精确匹配，2 分钟会话兜底；写入 `ea-extend-delegated.json`）；`on-stop.js` 改为优先按捕获记录提醒、无捕获时回退扫库（本会话 + 10 分钟窗），消除跨会话串场；修复 Stop 读不到 session_id 的缺陷（曾只查 camelCase）；测试 120 项全绿
 
 ### 阶段 4 · CLI 与 Skill（2026-09-17 ✅；证据 `docs/verification/2026-09-17-stage4/`）
 - [x] T4.1 `bin/dim-external-agents-extend`（真实入口 → `server/src/cli.js`）：`list` / `show <taskId>` / `tail <taskId>`（--json / --type / --status / --limit / --interval）；纯本机、零依赖

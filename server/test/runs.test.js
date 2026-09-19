@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { listRuns, getRun, RunsError, defaultDbPath } = require('../src/core/runs');
+const { listRuns, getRun, findRunByToolCallId, RunsError, defaultDbPath } = require('../src/core/runs');
 
 function mkTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'ea-runs-test-'));
@@ -101,6 +101,28 @@ test('getRun：命中与缺失', () => {
   assert.equal(run.agentType, 'kimi');
   assert.equal(run.taskTitle, 't1');
   assert.equal(getRun('task_missing', { dbPath }), null);
+});
+
+test('findRunByToolCallId：命中、缺失与空参数', () => {
+  const dir = mkTmpDir();
+  const dbPath = path.join(dir, 'dimcode.sqlite');
+  makeFixtureDb(dbPath);
+  const run = findRunByToolCallId('c2', { dbPath });
+  assert.equal(run.taskId, 'task_1789616533081_081muy');
+  assert.equal(run.agentType, 'cursor');
+  assert.equal(findRunByToolCallId('c_missing', { dbPath }), null);
+  assert.equal(findRunByToolCallId('', { dbPath }), null);
+  assert.equal(findRunByToolCallId(undefined, { dbPath }), null);
+});
+
+test('findRunByToolCallId：列缺失（schema 漂移）→ null 不崩', () => {
+  const dir = mkTmpDir();
+  const dbPath = path.join(dir, 'narrow2.sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.exec('CREATE TABLE background_tasks (taskId TEXT, toolName TEXT, status TEXT, startedAt TEXT)');
+  db.prepare('INSERT INTO background_tasks VALUES (?,?,?,?)').run('task_x', 'agent', 'running', '2026-09-19T00:00:00.000Z');
+  db.close();
+  assert.equal(findRunByToolCallId('call_any', { dbPath }), null);
 });
 
 test('容错：数据库不存在 → db_unavailable 且不创建文件', () => {
