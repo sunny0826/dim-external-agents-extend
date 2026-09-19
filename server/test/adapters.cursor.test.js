@@ -266,6 +266,30 @@ test('合成会话：顺序恢复 + 事件归一化（无降级）', () => {
   );
 });
 
+test('会话模型：assistant 消息的 modelName 提取（后者覆盖前者）', () => {
+  const dir = makeTempDir();
+  const messages = [
+    assistantMsg([{ type: 'text', text: 'one', providerOptions: { cursor: { modelName: 'cursor-grok-4.6-high' } } }], 'msg_1'),
+    assistantMsg(
+      [{ type: 'text', text: 'two', providerOptions: { cursor: { modelName: 'cursor-grok-4.6-high-fast' } } }],
+      'msg_2'
+    ),
+  ];
+  writeStore(dir, { messages, snapshot: (ids) => buildSnapshot({ messageIds: ids }) });
+  const res = readEvents(refOf(dir));
+  assert.deepEqual(res.meta.model, { id: 'cursor-grok-4.6-high-fast', provider: null, source: 'assistant' });
+});
+
+test('会话模型：无 assistant 消息 → null', () => {
+  const dir = makeTempDir();
+  writeStore(dir, {
+    messages: [{ role: 'system', content: 'sys' }],
+    snapshot: (ids) => buildSnapshot({ messageIds: ids }),
+  });
+  const res = readEvents(refOf(dir));
+  assert.equal(res.meta.model, null);
+});
+
 test('增量 tail：新消息追加后只产出新增条目', () => {
   const dir = makeTempDir();
   const first = [

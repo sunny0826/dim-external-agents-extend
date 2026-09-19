@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Model visibility** — the task list shows the model chosen at delegation time (`default` is displayed as 默认), and the log header shows the model actually used by the external session: Kimi (`modelAlias`), Cursor (assistant `modelName`), Codex (`turn_context` / `thread_settings`). `list_agent_runs` returns `model` per run, `read_agent_run` returns `session.model`, and the CLI `show` command prints both
+- **Markdown tables** — agent text output now renders GFM-style tables (`| a | b |` plus a `|---|` separator row) as real tables: header styling, per-column alignment (`:---`, `:---:`, `---:`), inline formatting inside cells, and horizontal scrolling for wide tables
+
+### Fixed
+
+- Markdown tables in the execution log rendered as plain text; the renderer now supports tables in addition to headings, lists, quotes, and code blocks
+
 ## [0.0.2] - 2026-09-18
 
 Interface refresh: the event stream is now a full-width agent trace instead of chat bubbles, agent text is Markdown-rendered, and consecutive tool calls collapse into groups. The visual system moved to a neutral, border-first engineering style.

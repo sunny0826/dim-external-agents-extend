@@ -23,7 +23,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { toIso, makeEvent, makeReadResult, warning } = require('../events');
+const { toIso, makeEvent, makeReadResult, modelHint, warning } = require('../events');
 
 const ADAPTER = 'kimi';
 const WIRE_RELATIVE = path.join('agents', 'main', 'wire.jsonl');
@@ -398,6 +398,28 @@ function mapLoopEvent(record, ts, line, ctx) {
 // 事件映射：顶层类型
 // ---------------------------------------------------------------------------
 
+/**
+ * 记录会话实际使用的模型（后者覆盖前者：模型可在会话中被切换）。
+ * modelAlias 是更完整的标识（如 kimi-code/k3）；短名 model（如 k3）仅在
+ * 从未见过 alias 时兜底，避免把已拿到的完整标识降级。
+ */
+function noteModel(ctx, record, source) {
+  const alias =
+    typeof record.modelAlias === 'string' && record.modelAlias.length > 0 ? record.modelAlias : null;
+  const provider = typeof record.provider === 'string' && record.provider.length > 0 ? record.provider : null;
+  if (alias !== null) {
+    const prev = ctx.model;
+    ctx.model = modelHint(alias, { provider: provider || (prev ? prev.provider : null), source });
+    return;
+  }
+  if (ctx.model !== null) {
+    if (provider !== null && ctx.model.provider === null) ctx.model.provider = provider;
+    return;
+  }
+  const short = typeof record.model === 'string' && record.model.length > 0 ? record.model : null;
+  if (short !== null) ctx.model = modelHint(short, { provider, source });
+}
+
 function mapTopLevel(type, record, ts, line, ctx) {
   switch (type) {
     case 'metadata': {
@@ -415,6 +437,7 @@ function mapTopLevel(type, record, ts, line, ctx) {
     }
 
     case 'llm.request':
+      noteModel(ctx, record, 'llm.request');
       return makeEvent({
         seq: 0,
         ts,
@@ -458,6 +481,7 @@ function mapTopLevel(type, record, ts, line, ctx) {
     }
 
     case 'usage.record': {
+      noteModel(ctx, record, 'usage.record');
       const summary = usageText(record.usage);
       return makeEvent({
         seq: 0,
@@ -586,6 +610,7 @@ function mapTopLevel(type, record, ts, line, ctx) {
       });
 
     case 'config.update':
+      noteModel(ctx, record, 'config.update');
       return makeEvent({
         seq: 0,
         ts,
@@ -604,6 +629,7 @@ function mapTopLevel(type, record, ts, line, ctx) {
       });
 
     case 'profile.bind': {
+      noteModel(ctx, record, 'profile.bind');
       const disclosure =
         record.environmentDisclosure && typeof record.environmentDisclosure === 'object'
           ? record.environmentDisclosure
@@ -1266,7 +1292,7 @@ function readEvents(ref, options = {}) {
 
   const file = located.file;
   const events = [];
-  const ctx = { warn, toolNames: new Map(), formatVersion: null };
+  const ctx = { warn, toolNames: new Map(), formatVersion: null, model: null };
   let nextCursor = parsed.offset;
   let fd;
 
@@ -1313,6 +1339,7 @@ function readEvents(ref, options = {}) {
     adapter: ADAPTER,
     formatVersion,
     warnings,
+    model: ctx.model,
   });
 }
 

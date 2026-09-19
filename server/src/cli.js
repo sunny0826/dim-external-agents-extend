@@ -174,6 +174,10 @@ function cmdShow(opts) {
   console.log(`类型    ${t.agentType || '-'}${t.agentName ? ' · ' + t.agentName : ''} · ${t.status}`);
   if (t.taskTitle) console.log(`标题    ${t.taskTitle}`);
   console.log(`时间    ${t.startedAt || '-'} → ${t.completedAt || '（未结束）'}`);
+  /* 模型：优先会话实际使用（session.model），回退 dim 派发时选择（task.model）。 */
+  const actualModel = first.session && first.session.model && first.session.model.id ? first.session.model.id : null;
+  const model = actualModel || t.model || null;
+  if (model) console.log(`模型    ${model}${actualModel ? '（会话实际）' : '（派发时选择）'}`);
   if (first.session) {
     console.log(`会话    ${first.session.adapter} · ${first.session.matchedBy} · ${first.session.confidence}`);
   }

@@ -120,6 +120,23 @@ function collectText(el) {
   return out;
 }
 
+/** 递归查找第一个指定 tag 的元素。 */
+function findByTag(el, tag) {
+  if (String(el.tagName || '').toLowerCase() === tag) return el;
+  for (const c of el.children || []) {
+    const hit = findByTag(c, tag);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** 收集指定 tag 的全部元素。 */
+function collectByTag(el, tag, out = []) {
+  if (String(el.tagName || '').toLowerCase() === tag) out.push(el);
+  for (const c of el.children || []) collectByTag(c, tag, out);
+  return out;
+}
+
 function toolResult(id, payload) {
   return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } };
 }
@@ -312,4 +329,167 @@ test('widget：inline 卡片模式 → 列表 + 点击条目 → 请求全屏 �
   const readCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'read_agent_run');
   assert.ok(readCall, '切全屏后应加载事件');
   assert.equal(readCall.params.arguments.taskId, 'task_bbb');
+});
+
+/** 进入日志页并投递一个 text 事件（Markdown 正文）。 */
+async function openLogWithText(w, md) {
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      count: 1,
+      runs: [
+        {
+          taskId: 'task_md',
+          agentType: 'kimi',
+          status: 'completed',
+          taskTitle: '表格任务',
+          startedAt: '2026-09-17T00:00:00.000Z',
+          model: 'kimi-code/k3',
+        },
+      ],
+    })
+  );
+  await settle();
+  clickFirstRun(w);
+  await settle();
+  const readCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'read_agent_run');
+  w.dispatch(
+    toolResult(readCall.id, {
+      status: 'ok',
+      taskId: 'task_md',
+      cursor: '0',
+      nextCursor: null,
+      total: 1,
+      events: [{ seq: 0, ts: null, kind: 'text', name: 'assistant', status: null, text: md, detail: null }],
+      meta: { degraded: false, warnings: [] },
+      session: {
+        adapter: 'kimi',
+        matchedBy: 'timestamp',
+        confidence: 'medium',
+        model: { id: 'kimi-code/k3', provider: 'openai', source: 'llm.request' },
+      },
+    })
+  );
+  await settle();
+}
+
+test('widget：Markdown 表格渲染为 table 结构（表头/对齐/行内标记/不吞后续段落）', async () => {
+  const w = bootWidget();
+  const md = [
+    '结果如下：',
+    '',
+    '| 文件 | 状态 | 说明 |',
+    '| :--- | :---: | ---: |',
+    '| a.js | 通过 | `ok` |',
+    '| b.js | 失败 | **检查** |',
+    '',
+    '结尾段落。',
+  ].join('\n');
+  await openLogWithText(w, md);
+
+  const table = findByTag(w.elements.events, 'table');
+  assert.ok(table, '应渲染出 table 元素');
+  assert.ok(findByTag(table, 'thead'), '应有 thead');
+  assert.ok(findByTag(table, 'tbody'), '应有 tbody');
+
+  const ths = collectByTag(table, 'th');
+  assert.equal(ths.length, 3, '表头应有 3 列');
+  assert.deepEqual(
+    ths.map((el) => collectText(el).trim()),
+    ['文件', '状态', '说明']
+  );
+  // 分隔行对齐 → class
+  assert.equal(ths[0].className, 'a-left');
+  assert.equal(ths[1].className, 'a-center');
+  assert.equal(ths[2].className, 'a-right');
+
+  const trs = collectByTag(table, 'tbody')[0].children;
+  assert.equal(trs.length, 2, '应有 2 行数据');
+  const tds1 = collectByTag(trs[0], 'td');
+  assert.equal(tds1.length, 3);
+  assert.equal(collectText(tds1[0]).trim(), 'a.js');
+  assert.equal(tds1[0].className, 'a-left');
+  assert.equal(tds1[2].className, 'a-right');
+  // 行内标记：`code` 与 **bold**
+  assert.ok(collectByTag(tds1[2], 'code').length === 1, '单元格内应渲染行内 code');
+  const tds2 = collectByTag(trs[1], 'td');
+  assert.ok(collectByTag(tds2[2], 'strong').length === 1, '单元格内应渲染 strong');
+
+  // 表格后的段落仍应渲染（表格不吞后续内容）
+  const dump = collectText(w.elements.events);
+  assert.ok(dump.includes('结尾段落。'), '表格后段落应保留');
+  assert.ok(dump.includes('结果如下：'), '表格前段落应保留');
+});
+
+test('widget：模型 chip —— 列表显示派发模型，日志头优先显示会话实际模型', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      count: 2,
+      runs: [
+        { taskId: 'task_m1', agentType: 'kimi', status: 'completed', taskTitle: 'K', startedAt: '2026-09-17T00:00:00.000Z', model: 'kimi-code/k3' },
+        { taskId: 'task_m2', agentType: 'codex', status: 'completed', taskTitle: 'C', startedAt: '2026-09-17T00:00:00.000Z', model: 'default' },
+      ],
+    })
+  );
+  await settle();
+
+  const chips = collectByTag(w.elements.runs, 'span').filter((el) => el.className === 'model');
+  assert.equal(chips.length, 2, '每个任务应有一个模型 chip');
+  assert.deepEqual(
+    chips.map((el) => el.textContent),
+    ['kimi-code/k3', '默认']
+  );
+
+  // 点击第一个任务：读取响应带会话实际模型 → 日志头显示实际模型
+  clickFirstRun(w);
+  await settle();
+  const readCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'read_agent_run');
+  w.dispatch(
+    toolResult(readCall.id, {
+      status: 'ok',
+      taskId: 'task_m1',
+      cursor: '0',
+      nextCursor: null,
+      total: 0,
+      events: [],
+      meta: { degraded: false, warnings: [] },
+      session: {
+        adapter: 'kimi',
+        matchedBy: 'timestamp',
+        confidence: 'medium',
+        model: { id: 'kimi-code/k3-256k', provider: 'openai', source: 'llm.request' },
+      },
+    })
+  );
+  await settle();
+  assert.equal(w.elements.lhModel.textContent, 'kimi-code/k3-256k');
+  assert.ok(!w.elements.lhModel.classList.contains('hidden'), '有模型时不应隐藏');
+
+  // 切换到第二个任务（无 session.model）→ 回退到派发模型，'default' 显示为「默认」
+  const cardItems = w.elements.runs.children.filter((c) => c.className.indexOf('run') >= 0);
+  cardItems[1]._ls.click();
+  await settle();
+  const readCall2 = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'read_agent_run').pop();
+  w.dispatch(
+    toolResult(readCall2.id, {
+      status: 'ok',
+      taskId: 'task_m2',
+      cursor: '0',
+      nextCursor: null,
+      total: 0,
+      events: [],
+      meta: { degraded: false, warnings: [] },
+      session: { adapter: 'codex', matchedBy: 'timestamp', confidence: 'medium', model: null },
+    })
+  );
+  await settle();
+  assert.equal(w.elements.lhModel.textContent, '默认');
 });

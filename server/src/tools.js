@@ -64,6 +64,8 @@ function summarizeRun(run) {
     agentName: run.agentName,
     status: run.status,
     taskTitle: run.taskTitle,
+    /* dim 派发时选择的模型（如 kimi-code/k3、grok-4.6；codex 常为 'default'）。 */
+    model: run.modelId || null,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     promptHead: run.prompt ? run.prompt.slice(0, 200) : null,
@@ -193,6 +195,8 @@ function readAgentRun(args = {}, deps = {}) {
         adapter: mapping.ref.adapter,
         matchedBy: mapping.matchedBy,
         confidence: mapping.confidence,
+        /* 会话日志里实际使用的模型（各适配器从自身格式提取；未知为 null）。 */
+        model: (read.meta && read.meta.model) || null,
       },
       total: events.length,
       cursor: String(start),
@@ -212,7 +216,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'list_agent_runs',
     description:
-      'List delegated external-agent runs (kimi / cursor / codex / ...) recorded by dim background tasks. Returns taskId, agent type, status, title and timestamps. Use a returned taskId with read_agent_run to inspect that run\u2019s execution log.',
+      'List delegated external-agent runs (kimi / cursor / codex / ...) recorded by dim background tasks. Returns taskId, agent type, status, title, the model selected at delegation time and timestamps. Use a returned taskId with read_agent_run to inspect that run\u2019s execution log.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -241,7 +245,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'read_agent_run',
     description:
-      'Read normalized execution-log events for one delegated external-agent run (tool calls, tool results, assistant text, reasoning, usage, steps...). Paginated: call again with the returned nextCursor to continue. The status field explains business states: ok / running (log may be incomplete; poll with cursor) / degraded (format fell back, see meta.warnings) / no_log / task_not_found.',
+      'Read normalized execution-log events for one delegated external-agent run (tool calls, tool results, assistant text, reasoning, usage, steps...). Paginated: call again with the returned nextCursor to continue. The status field explains business states: ok / running (log may be incomplete; poll with cursor) / degraded (format fell back, see meta.warnings) / no_log / task_not_found. session.model reports the model actually used in the external session (when detectable).',
     inputSchema: {
       type: 'object',
       properties: {

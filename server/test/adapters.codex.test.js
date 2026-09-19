@@ -326,6 +326,37 @@ test('映射：消息/推理/步骤/工具调用与结果（含退出码判定�
   assert.equal(end.text, '完成了');
 });
 
+test('会话模型：turn_context 提取，thread_settings 覆盖并可补 provider', (t) => {
+  const file = makeTempFile(
+    t,
+    sessionMetaLine() +
+      line(rec('turn_context', { turn_id: 'turn-1', model: 'gpt-6-astra' })) +
+      line(
+        rec('event_msg', {
+          type: 'thread_settings_applied',
+          thread_settings: { model: 'gpt-6-mini', model_provider_id: 'custom' },
+        })
+      )
+  );
+  const res = read(file);
+  assert.deepEqual(res.meta.model, {
+    id: 'gpt-6-mini',
+    provider: 'custom',
+    source: 'event_msg/thread_settings_applied',
+  });
+
+  // 仅 turn_context（无 provider）时也应有模型，provider 为 null
+  const onlyTurn = makeTempFile(
+    t,
+    sessionMetaLine() + line(rec('turn_context', { turn_id: 'turn-1', model: 'gpt-6-astra' }))
+  );
+  assert.deepEqual(read(onlyTurn).meta.model, { id: 'gpt-6-astra', provider: null, source: 'turn_context' });
+
+  // 无模型信息 → null
+  const none = makeTempFile(t, sessionMetaLine());
+  assert.equal(read(none).meta.model, null);
+});
+
 test('去重：exec 工具调用 ↔ CommandExecution（id 不同、命令相同）', (t) => {
   const file = makeTempFile(
     t,

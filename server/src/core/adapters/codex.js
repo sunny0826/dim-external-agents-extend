@@ -59,7 +59,7 @@
 
 const fs = require('node:fs');
 const crypto = require('node:crypto');
-const { makeEvent, makeReadResult, warning } = require('../events');
+const { makeEvent, makeReadResult, modelHint, warning } = require('../events');
 
 /** 适配器标识，与 core/mapping.js 产出的 ref.adapter 一致。 */
 const ADAPTER = 'codex';
@@ -436,7 +436,18 @@ function createMapper(probe) {
     formatVersion: probe.formatVersion,
     callNames: new Map(probe.callNames), // callId → 工具名（给 tool_result 补名）
     usageFp: new Set(probe.usageCp), // token 用量指纹（token_usage_record 与 event_msg/token_count 去重）
+    model: null, // 会话实际使用的模型（turn_context / thread_settings 中提取）
   };
+
+  /** 记录会话实际使用的模型；后者覆盖前者（模型可在会话中被切换）。 */
+  function noteModel(id, provider, source) {
+    if (typeof id !== 'string' || id.length === 0) return;
+    const prev = state.model;
+    state.model = modelHint(id, {
+      provider: typeof provider === 'string' && provider.length > 0 ? provider : prev ? prev.provider : null,
+      source,
+    });
+  }
 
   function emit(partial) {
     const ev = makeEvent({ seq: state.seq, ...partial });
@@ -924,6 +935,7 @@ function createMapper(probe) {
 
     if (sub === 'thread_settings_applied' || sub === 'thread_settings') {
       const settings = p.thread_settings && typeof p.thread_settings === 'object' ? p.thread_settings : p;
+      noteModel(settings.model, settings.model_provider_id, `event_msg/${sub}`);
       const mode = settings.collaboration_mode && typeof settings.collaboration_mode === 'object' ? settings.collaboration_mode : null;
       const modeSettings = mode && mode.settings && typeof mode.settings === 'object' ? mode.settings : null;
       const detail = {
@@ -1048,6 +1060,7 @@ function createMapper(probe) {
 
     if (type === 'turn_context') {
       if (p === null) return unknown(type, null, { source: type }, 'malformed_record', 'turn_context 缺少 payload 对象');
+      noteModel(p.model, null, 'turn_context');
       const sandbox = p.sandbox_policy && typeof p.sandbox_policy === 'object' ? p.sandbox_policy : null;
       const mode = p.collaboration_mode && typeof p.collaboration_mode === 'object' ? p.collaboration_mode : null;
       const modeSettings = mode && mode.settings && typeof mode.settings === 'object' ? mode.settings : null;
@@ -1173,6 +1186,7 @@ function readEvents(ref, options = {}) {
   let events = [];
   let nextCursor = offset;
   let formatVersion = null;
+  let model = null;
   try {
     fd = fs.openSync(filePath, 'r');
     const size = fs.fstatSync(fd).size;
@@ -1248,6 +1262,7 @@ function readEvents(ref, options = {}) {
     events = mapper.state.events;
     for (const w of mapper.state.warnings) warnings.push(w);
     formatVersion = mapper.state.formatVersion;
+    model = mapper.state.model;
     nextCursor = start + consumed;
   } catch (err) {
     warnings.push(warning('rollout_unreadable', `读取 rollout 文件失败：${String((err && err.message) || err)}`, { file: filePath }));
@@ -1265,7 +1280,13 @@ function readEvents(ref, options = {}) {
 
   // 本次批次没有 session_meta（cursor>0）时，从文件头部窗口补 formatVersion
   if (formatVersion === null) formatVersion = readCliVersion(filePath);
-  return makeReadResult(events, { nextCursor: String(nextCursor), adapter: ADAPTER, formatVersion, warnings });
+  return makeReadResult(events, {
+    nextCursor: String(nextCursor),
+    adapter: ADAPTER,
+    formatVersion,
+    warnings,
+    model: model,
+  });
 }
 
 module.exports = { readEvents };
