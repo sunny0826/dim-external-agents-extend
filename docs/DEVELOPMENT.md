@@ -14,6 +14,7 @@
 - 2026-09-18 增补：Widget 视觉系统重构（设计变量 + 深浅双主题 + 进入/展开动效）、时间戳默认可见、cursor `<timestamp>` 解析（用户消息真实时间）、工具调用摘要改为展示真实参数；测试 90 项全绿
 - 2026-09-18 二次增补：事件流改为行式 Agent 轨迹（弃对话气泡）；文本输出 Markdown 渲染（零依赖、纯 DOM）；连续工具调用聚合为「工具调用」折叠组（≥2 个调用，展开为 rail 明细）；界面重设计为 neutral-first 工程工具风（去紫色 accent / 玻璃拟态 / 光晕 / 胶囊徽章，边框优先、圆角收紧），List 页改为行式列表
 - 2026-09-19 增补：显示外部 Agent 使用的模型——列表显示派发时选择（`metadata.selectedModelId`，`default` 本地化显示），日志页头部显示会话实际模型（kimi `modelAlias` / cursor assistant `modelName` / codex `turn_context`・`thread_settings`，经 `meta.model` 契约透出）；`list_agent_runs` 返回 `model`、`read_agent_run` 返回 `session.model`、CLI `show` 同时打印两者；日志 Markdown 渲染支持 GFM 表格（表头样式、`:---:` 列对齐、单元格行内标记、宽表横向滚动兜底）；测试 100 项全绿
+- 2026-09-19 二次增补（触发方式强化）：① `UserPromptSubmit` 新增「完成/失败补报」——最近 4 小时内结束且未提醒过的任务注入 `[外部 Agent 完成]` 摘要（每 taskId 去重，上限 3 条），并统一按**本会话**过滤（与 `list_agent_runs` 默认 `scope=session` 口径一致）；② 新增 `PostToolUse` hook（`hooks/on-post-tool.js`，matcher `agent`）在 `create_external` 委托瞬间精确捕获任务（`sourceToolCallId` 精确匹配，2 分钟会话兜底），`Stop` hook 优先按捕获记录提醒、仅在没有捕获时回退扫库（本会话 + 10 分钟窗），消除跨会话串场；③ 修复 `Stop` hook 只读 camelCase `sessionId` 导致会话 id 取不到的缺陷（宿主 stdin 为 snake_case）；测试 120 项全绿
 - 可行性：已验证（2026-09-17，本机实测）；事后与近实时（2s 轮询）可行，完全流式不在范围
 - 里程碑：M1 工具层可用 → M2 Widget 面板可用 → M3 完整交付
 

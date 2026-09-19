@@ -1,6 +1,6 @@
 ---
 name: external-agents-extend
-description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex / grok / opencode / zcode）委托任务的执行日志，包括运行状态、工具调用序列、中间输出与失败原因。当用户问"某个外部 agent 任务跑到哪了 / 为什么失败 / 它做了什么"，或需要列出最近的外部 agent 委托任务、回放某次委托过程时使用本技能。
+description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex / grok / opencode / zcode）委托任务的执行日志，包括运行状态、工具调用序列、中间输出与失败原因。当用户问"某个外部 agent 任务跑到哪了 / 跑完了吗 / 完成了吗 / 结果如何 / 为什么失败 / 它做了什么"，或需要列出最近的外部 agent 委托任务、回放某次委托过程时使用本技能。
 ---
 
 # External Agents Extend（外部 Agent 日志）
@@ -9,10 +9,11 @@ description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex /
 
 ## 何时使用
 
-- 用户询问某个外部 agent 任务（kimi / cursor / codex 等）的进度、结果或失败原因；
+- 用户询问某个外部 agent 任务（kimi / cursor / codex 等）的进度、结果或失败原因（含"跑完了吗 / 结束了吗 / 结果如何"）；
 - 需要列出最近的外部 agent 委托任务及其状态；
 - 需要回放某次委托的工具调用序列与中间输出（排查行为、核对结果）；
 - 用户想在当前会话里"一眼看到"有哪些外部 Agent 在跑（用 `show_external_agents` 卡片）；
+- **上下文出现 `[外部 Agent 完成]` 注入**（hook 在任务结束后的下一轮自动补报）时：优先用 `read_agent_run` 读取该任务结果并主动简报，失败任务说明原因；
 - **用户通过输入区的「技能」按钮或斜杠菜单选中本技能（`/external-agents-extend`）时**：不要反问，**立即调用 `open_agent_run_log` 打开列表页**（默认本会话；要看全部历史时提示勾选「全部会话」）。
 
 ## 工具

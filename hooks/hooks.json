@@ -12,6 +12,18 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/on-post-tool.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

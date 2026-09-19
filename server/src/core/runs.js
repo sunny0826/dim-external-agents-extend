@@ -167,4 +167,21 @@ function getRun(taskId, options = {}) {
   });
 }
 
-module.exports = { RunsError, defaultDbPath, listRuns, getRun };
+/**
+ * 按 sourceToolCallId 精确匹配任务（PostToolUse 捕获委托用）。
+ * 列缺失（schema 漂移）或无匹配时返回 null。
+ */
+function findRunByToolCallId(toolCallId, options = {}) {
+  const { home = os.homedir(), dbPath = defaultDbPath(home) } = options;
+  if (typeof toolCallId !== 'string' || toolCallId.length === 0) return null;
+  return withDb(dbPath, (db) => {
+    if (!availableColumns(db, 'background_tasks').has('sourceToolCallId')) return null;
+    const cols = selectClause(db);
+    const row = db
+      .prepare(`SELECT ${cols} FROM background_tasks WHERE sourceToolCallId = ? ORDER BY startedAt DESC LIMIT 1`)
+      .get(toolCallId);
+    return row === undefined ? null : rowToRun(row);
+  });
+}
+
+module.exports = { RunsError, defaultDbPath, listRuns, getRun, findRunByToolCallId };
