@@ -40,7 +40,13 @@ function makeFixture(home) {
     'agent',
     'completed',
     'none',
-    JSON.stringify({ subagentType: 'kimi', taskTitle: 'GUO-63 相关任务', subagentInput: { prompt: '实现 GUO-63' } }),
+    JSON.stringify({
+      subagentType: 'kimi',
+      taskTitle: 'GUO-63 相关任务',
+      subagentInput: { prompt: '实现 GUO-63' },
+      selectedProviderId: 'kimi',
+      selectedModelId: 'kimi-code/k3',
+    }),
     '2026-09-16T11:52:50.749Z',
     '2026-09-16T12:00:00.000Z'
   );
@@ -64,7 +70,7 @@ function makeFixture(home) {
     'agent',
     'completed',
     'none',
-    JSON.stringify({ subagentType: 'cursor', taskTitle: '无会话的 cursor 任务' }),
+    JSON.stringify({ subagentType: 'cursor', taskTitle: '无会话的 cursor 任务', selectedProviderId: 'cursor', selectedModelId: 'grok-4.6' }),
     '2026-09-16T11:52:52.749Z',
     null
   );
@@ -81,6 +87,7 @@ function makeFixture(home) {
   };
   mkSession('session_aaaaaaaa', TS + 500, [
     JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: TS + 500 }),
+    JSON.stringify({ type: 'config.update', agentId: 'main', modelAlias: 'kimi-code/k3', time: TS + 550 }),
     ev({ type: 'tool.call', name: 'read_file', arguments: { path: '/x' } }, TS + 600),
     ev({ type: 'tool.result', result: 'ok' }, TS + 700),
     ev({ type: 'content.part', part: { type: 'text', text: 'done' } }, TS + 800),
@@ -107,7 +114,10 @@ test('list_agent_runs：返回摘要、支持过滤', () => {
   assert.equal(all.count, 3);
   assert.equal(all.runs[0].taskId, `task_${TS + 2000}_ccc333`); // startedAt 倒序
   assert.equal(all.runs[0].agentType, 'cursor');
+  assert.equal(all.runs[0].model, 'grok-4.6'); // dim 派发时选择的模型
   assert.equal(all.runs[0].promptHead, null);
+  assert.equal(all.runs[2].model, 'kimi-code/k3');
+  assert.equal(all.runs[1].model, null); // metadata 未带模型 → null
 
   const kimi = JSON.parse(listAgentRuns({ agentType: 'kimi' }, { home, dbPath }).text);
   assert.equal(kimi.count, 2);
@@ -160,26 +170,29 @@ test('read_agent_run：no_log（任务存在但无对应会话）', () => {
   assert.equal(res.isError, false);
 });
 
-test('read_agent_run：正常读取（ok）+ 游标分页', () => {
+test('read_agent_run：正常读取（ok）+ 游标分页 + 会话模型', () => {
   const home = mkTmpHome();
   const { dbPath } = makeFixture(home);
   const taskId = `task_${TS}_aaa111`;
 
   const page1 = JSON.parse(readAgentRun({ taskId, limit: 2 }, { home, dbPath }).text);
   assert.equal(page1.status, 'ok');
-  assert.equal(page1.total, 4); // meta + tool_call + tool_result + text
+  assert.equal(page1.total, 5); // meta + config.update + tool_call + tool_result + text
   assert.equal(page1.events.length, 2);
   assert.equal(page1.nextCursor, '2');
   assert.equal(page1.session.adapter, 'kimi');
+  /* 会话实际模型（来自 wire 的 config.update）；与 dim 侧 task.model 并存 */
+  assert.deepEqual(page1.session.model, { id: 'kimi-code/k3', provider: null, source: 'config.update' });
+  assert.equal(page1.task.model, 'kimi-code/k3');
   assert.ok(page1.events[0].kind === 'meta');
   assert.equal(page1.events[0].raw, undefined); // 事件瘦身：raw 不返回
 
   const kinds1 = page1.events.map((e) => e.kind);
   assert.ok(kinds1.includes('meta'));
-  assert.ok(kinds1.includes('tool_call'));
+  assert.ok(kinds1.includes('tool_call') || kinds1.includes('notice'));
 
-  const page2 = JSON.parse(readAgentRun({ taskId, cursor: page1.nextCursor, limit: 2 }, { home, dbPath }).text);
-  assert.equal(page2.events.length, 2);
+  const page2 = JSON.parse(readAgentRun({ taskId, cursor: page1.nextCursor, limit: 3 }, { home, dbPath }).text);
+  assert.equal(page2.events.length, 3);
   assert.equal(page2.nextCursor, null);
   const kinds2 = page2.events.map((e) => e.kind);
   assert.ok(kinds2.some((k) => k === 'tool_result' || k === 'text'));

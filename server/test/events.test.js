@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { makeEvent, makeReadResult, toIso, warning } = require('../src/core/events');
+const { makeEvent, makeReadResult, modelHint, toIso, warning } = require('../src/core/events');
 
 test('toIso：毫秒数、ISO 字符串与无效值', () => {
   assert.equal(toIso(1789559571387), '2026-09-16T11:52:51.387Z');
@@ -69,10 +69,29 @@ test('makeReadResult：degraded 与 warnings 联动、nextCursor 透传', () => 
   assert.equal(ok.meta.adapter, 'kimi');
   assert.equal(ok.meta.formatVersion, '1.5');
   assert.equal(ok.nextCursor, null);
+  assert.equal(ok.meta.model, null, '未提供模型时 meta.model 为 null');
 
   const degraded = makeReadResult([], { adapter: 'codex', warnings: [warning('unknown_type', 'x')] });
   assert.equal(degraded.meta.degraded, true);
   assert.equal(degraded.meta.warnings[0].code, 'unknown_type');
+});
+
+test('modelHint：规范化（空 id → null；provider/source 可空）', () => {
+  assert.deepEqual(modelHint('kimi-code/k3'), { id: 'kimi-code/k3', provider: null, source: null });
+  assert.deepEqual(modelHint('gpt-6', { provider: 'custom', source: 'turn_context' }), {
+    id: 'gpt-6',
+    provider: 'custom',
+    source: 'turn_context',
+  });
+  assert.equal(modelHint(''), null);
+  assert.equal(modelHint(null), null);
+  assert.equal(modelHint(undefined, { provider: 'x' }), null);
+  assert.deepEqual(modelHint('m', { provider: '', source: '' }), { id: 'm', provider: null, source: null });
+});
+
+test('makeReadResult：model 透传', () => {
+  const res = makeReadResult([], { adapter: 'cursor', model: modelHint('cursor-grok-4.6', { source: 'assistant' }) });
+  assert.deepEqual(res.meta.model, { id: 'cursor-grok-4.6', provider: null, source: 'assistant' });
 });
 
 test('warning：结构', () => {

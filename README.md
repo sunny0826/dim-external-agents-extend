@@ -12,8 +12,8 @@ When DimAgent hands a task to an external agent (Kimi, Cursor, Codex, ...) via `
 
 ## Features
 
-- **Task list** — List tasks delegated to external agents in the current session (or across all history): agent type, status, start time, and duration
-- **Execution logs** — Click a task to see the full event stream: tool calls, file reads, command output, reasoning, and errors; running tasks refresh incrementally every 2 seconds
+- **Task list** — List tasks delegated to external agents in the current session (or across all history): agent type, model, status, start time, and duration
+- **Execution logs** — Click a task to see the full event stream: tool calls, file reads, command output, reasoning, and errors; agent text is Markdown-rendered (headings, lists, tables, code blocks); running tasks refresh incrementally every 2 seconds
 - **Inline session card** — Show task cards right in the conversation; click one to open the live log fullscreen
 - **Automatic status hints** — Detect running external tasks each turn; new tasks surface a status card automatically, no need to ask
 - **CLI** — `list` / `show` / `tail` commands with `--json` output for scripting
@@ -73,8 +73,8 @@ You can also pick `/external-agents-extend` from the skills button or slash menu
 
 ![Log page](docs/images/panel-log.png)
 
-- The header shows task context: agent, title, status, and time range
-- The event stream is grouped by type: agent text (Markdown rendered), tool calls (a collapsible "tool calls" group — expand to see every step), and reasoning/system events (collapsible)
+- The header shows task context: agent, model, title, status, and time range
+- The event stream is grouped by type: agent text (Markdown rendered, including tables), tool calls (a collapsible "tool calls" group — expand to see every step), and reasoning/system events (collapsible)
 - With "Follow" enabled, it auto-scrolls to the latest; running tasks append incrementally every 2 seconds
 - Check "All sessions" for historical tasks, and "Show finished" for completed / cancelled tasks
 

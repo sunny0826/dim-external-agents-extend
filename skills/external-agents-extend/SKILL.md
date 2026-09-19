@@ -17,8 +17,8 @@ description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex /
 
 ## 工具
 
-1. **`list_agent_runs`** — 列出任务（可按 `agentType` / `status` 过滤，默认最新在前）。`scope` 默认 `session`（只列当前会话委托的任务），传 `all` 看全部历史。返回 `taskId` 供后续读取。
-2. **`read_agent_run`** — 按 `taskId` 读取归一化事件流（工具调用 / 工具结果 / 文本 / 思考 / 用量 / 步骤），游标分页。
+1. **`list_agent_runs`** — 列出任务（可按 `agentType` / `status` 过滤，默认最新在前）。`scope` 默认 `session`（只列当前会话委托的任务），传 `all` 看全部历史。返回 `taskId` 与派发时选择的 `model`，供后续读取。
+2. **`read_agent_run`** — 按 `taskId` 读取归一化事件流（工具调用 / 工具结果 / 文本 / 思考 / 用量 / 步骤），游标分页；`session.model` 为会话实际使用的模型（可探测到时，如 kimi-code/k3、gpt-6-astra）。
    - 返回的 `status` 语义：
      - `ok`：完整历史；
      - `running`：任务未结束，日志可能不完整——用返回的 `nextCursor` 稍后再读增量；

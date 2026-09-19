@@ -72,8 +72,24 @@ function warning(code, message, extra = {}) {
   return { code, message, ...extra };
 }
 
-/** 包装一次读取的结果：事件数组 + 增量游标 + 降级元信息。 */
-function makeReadResult(events, { nextCursor = null, adapter = 'unknown', formatVersion = null, warnings = [] } = {}) {
+/**
+ * 会话实际使用的模型提示（各适配器从自己的格式中提取）。
+ * id 缺失时返回 null；provider / source 只做记录，可为空。
+ */
+function modelHint(id, { provider = null, source = null } = {}) {
+  if (typeof id !== 'string' || id.length === 0) return null;
+  return {
+    id,
+    provider: typeof provider === 'string' && provider.length > 0 ? provider : null,
+    source: typeof source === 'string' && source.length > 0 ? source : null,
+  };
+}
+
+/** 包装一次读取的结果：事件数组 + 增量游标 + 降级元信息 + 会话模型提示。 */
+function makeReadResult(
+  events,
+  { nextCursor = null, adapter = 'unknown', formatVersion = null, warnings = [], model = null } = {}
+) {
   return {
     events,
     nextCursor,
@@ -82,6 +98,7 @@ function makeReadResult(events, { nextCursor = null, adapter = 'unknown', format
       formatVersion,
       degraded: warnings.length > 0,
       warnings,
+      model: model === null || model === undefined ? null : model,
     },
   };
 }
@@ -91,5 +108,6 @@ module.exports = {
   toIso,
   makeEvent,
   makeReadResult,
+  modelHint,
   warning,
 };

@@ -367,3 +367,48 @@ test('扩展顶层类型：真实会话出现的事件不下沉为 unknown', (t)
   assert.equal(byName.get('plan_mode.enter').kind, 'notice');
   assert.equal(byName.get('task.waitDelivered').detail.keys.length, 1);
 });
+
+test('会话模型：modelAlias 提取（短名 model 不降级覆盖）', (t) => {
+  const { root, dir, wire } = makeTempSession();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  fs.writeFileSync(
+    wire,
+    [
+      line({ type: 'metadata', protocol_version: '1.5', created_at: 1789559571387 }),
+      line({ type: 'profile.bind', agentId: 'main', profileName: 'agent', modelAlias: 'kimi-code/k3-256k', time: 1789559571400 }),
+      line({ type: 'config.update', agentId: 'main', modelAlias: 'kimi-code/k3', time: 1789559571500 }),
+      line({ type: 'llm.request', agentId: 'main', provider: 'openai', model: 'k3', modelAlias: 'kimi-code/k3', time: 1789559572000 }),
+      line({ type: 'usage.record', agentId: 'main', model: 'k3', usage: { input: 1, output: 2 }, time: 1789559572100 }),
+    ].join('')
+  );
+
+  const { meta } = readEvents(refFor(dir));
+  // 最后出现的 modelAlias 生效；usage.record 的短名 k3 不得覆盖
+  assert.deepEqual(meta.model, { id: 'kimi-code/k3', provider: 'openai', source: 'llm.request' });
+});
+
+test('会话模型：仅有短名 model 时兜底', (t) => {
+  const { root, dir, wire } = makeTempSession();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  fs.writeFileSync(
+    wire,
+    [
+      line({ type: 'metadata', protocol_version: '1.5', created_at: 1789559571387 }),
+      line({ type: 'usage.record', agentId: 'main', model: 'k3', usage: { input: 1 }, time: 1789559572000 }),
+    ].join('')
+  );
+
+  const { meta } = readEvents(refFor(dir));
+  assert.deepEqual(meta.model, { id: 'k3', provider: null, source: 'usage.record' });
+});
+
+test('会话模型：wire 无模型信息 → null', (t) => {
+  const { root, dir, wire } = makeTempSession();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  fs.writeFileSync(wire, line({ type: 'metadata', protocol_version: '1.5', created_at: 1789559571387 }));
+  const { meta } = readEvents(refFor(dir));
+  assert.equal(meta.model, null);
+});

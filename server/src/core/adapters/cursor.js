@@ -64,7 +64,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { toIso, makeEvent, makeReadResult, warning } = require('../events');
+const { toIso, makeEvent, makeReadResult, modelHint, warning } = require('../events');
 
 const ADAPTER = 'cursor';
 const FORMAT_VERSION = 'cursor-acp-store/1';
@@ -522,6 +522,9 @@ function messageEvents(json, blobId, index, ctx) {
     }
     return null;
   })();
+  // 会话实际使用的模型：assistant 消息携带 modelName（如 cursor-grok-4.6-high-fast）；
+  // 后者覆盖前者（模型可在会话中被切换）。
+  if (model !== null) ctx.model = modelHint(model, { source: 'assistant' });
   const cursorPo = json.providerOptions && json.providerOptions.cursor ? json.providerOptions.cursor : null;
   const hl = cursorPo && cursorPo.highLevelToolCallResult ? cursorPo.highLevelToolCallResult : null;
   const isError = hl && typeof hl.isError === 'boolean' ? hl.isError : null;
@@ -695,6 +698,7 @@ function readEvents(ref, options = {}) {
       unknownRoles: new Set(),
       unknownParts: new Set(),
       reasoningRedacted: 0,
+      model: null,
     };
     const events = [];
     let lastEmitted = null;
@@ -783,7 +787,13 @@ function readEvents(ref, options = {}) {
     });
 
     const nextCursor = lastEmitted === null ? (parsed && !parsed.invalid ? cursorIn : null) : encodeCursor(order.rootId, lastEmitted);
-    return makeReadResult(events, { nextCursor, adapter: ADAPTER, formatVersion: FORMAT_VERSION, warnings });
+    return makeReadResult(events, {
+      nextCursor,
+      adapter: ADAPTER,
+      formatVersion: FORMAT_VERSION,
+      warnings,
+      model: ctx.model,
+    });
   } catch (err) {
     // 查询层容错：损坏库 / 非 SQLite 文件 / schema 漂移都只在这一层暴露
     warnings.push(warning('db_unreadable', `读取 ${dbPath} 失败：${String((err && err.message) || err)}`));
