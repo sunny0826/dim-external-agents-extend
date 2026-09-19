@@ -473,12 +473,13 @@ test('listExternalSessions：标出来源（dim 委托 / 其它）与统一名',
   const kimi = res.sessions.find((s) => s.key === 'kimi:session_a2ec3bc2-153b-4452-9471-a02c55c9d136');
   assert.equal(kimi.source, 'dim');
   assert.equal(kimi.unifiedName, '[dim] 修复 GUO-108 审查问题（P0/P1/P2）');
-  assert.equal(kimi.displayName, '[kimi] 09-19 12:31 · [dim] 修复 GUO-108 审查问题（P0/P1/P2）');
+  /* 展示名里的时间是本地时区渲染的 —— 只断言格式，别把测试绑死在某个时区 */
+  assert.match(kimi.displayName, /^\[kimi\] \d{2}-\d{2} \d{2}:\d{2} · \[dim\] 修复 GUO-108 审查问题（P0\/P1\/P2）$/);
 
   const codex = res.sessions.find((s) => s.key === 'codex:01a0b7ee-a483-7a70-835b-78b7f93349e7');
   assert.equal(codex.source, 'manual');
   assert.equal(codex.unifiedName, '[手动] 维护本地 skill');
-  assert.equal(codex.displayName, '[codex] 09-19 12:31 · [手动] 维护本地 skill');
+  assert.match(codex.displayName, /^\[codex\] \d{2}-\d{2} \d{2}:\d{2} · \[手动\] 维护本地 skill$/);
 });
 
 test('listExternalSessions：delegated 标出「由某个编排器拉起」（用于解释非 dim 来源）', () => {
