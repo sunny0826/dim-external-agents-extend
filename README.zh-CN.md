@@ -63,7 +63,7 @@ ln -s "$(pwd)" ~/.agents/plugins/external-agents-extend
 
 | 工具 | 作用 |
 | --- | --- |
-| `list_agent_runs` | 列出委托任务（可按 Agent 类型、状态过滤） |
+| `list_agent_runs` | 列出委托任务（可按 Agent 类型、状态过滤；`sessionId` 指定某个 dim 会话） |
 | `read_agent_run` | 读取某个任务的执行日志（分页 + 增量轮询） |
 | `list_external_sessions` | 列出各 Agent 自己的会话，带统一展示名 |
 | `rename_external_sessions` | 把统一名称写回 Agent 的会话存储（默认只预览） |

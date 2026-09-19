@@ -554,3 +554,25 @@ test('widget：写入失败时开关回到原状态，不假装成功', async ()
   assert.equal(w.elements.autoName.checked, false, '写失败 → 回到关闭');
   assert.match(w.elements.statusText.textContent, /未保存/);
 });
+
+test('widget：服务端回退为全部会话时，勾选「全部会话」并显示原因（不再静默为空）', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      scope: 'all',
+      sessionId: 'sess_mine',
+      scopeFallback: { from: 'sess_mine', reason: '本会话没有外部 Agent 任务，已回退为全部会话（含其它 dim 会话）' },
+      count: 1,
+      runs: [{ taskId: 'task_1789824567432_zanjgj', sessionId: 'sess_other', agentType: 'kimi', status: 'running', taskTitle: '实现 GUO-109' }],
+    })
+  );
+  await settle();
+  assert.equal(w.elements.allRuns.checked, true, '应勾选「全部会话」');
+  assert.match(w.elements.scopeBadge.textContent, /全部会话（本会话无任务）/);
+  assert.match(collectText(w.elements.runs), /本会话没有外部 Agent 任务/, '列表里应显示回退原因');
+  assert.match(collectText(w.elements.runs), /实现 GUO-109/, '应显示别的会话里运行中的任务');
+});

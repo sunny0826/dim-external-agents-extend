@@ -63,7 +63,7 @@ The plugin provides seven tools, which the model calls automatically:
 
 | Tool | Purpose |
 | --- | --- |
-| `list_agent_runs` | List delegated tasks (filter by agent type, status) |
+| `list_agent_runs` | List delegated tasks (filter by agent type, status; `sessionId` to target a specific dim session) |
 | `read_agent_run` | Read a task's execution log (paginated + incremental polling) |
 | `list_external_sessions` | List the agents' own sessions with unified display names |
 | `rename_external_sessions` | Write the unified name back into an agent's session store (preview by default) |

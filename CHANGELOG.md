@@ -26,6 +26,7 @@ External-agent session names are now normalized and can be written back, so both
 
 ### Fixed
 
+- **Running external agents could look "unrecognized" in a concurrent session**: `scope: session` resolved through a single global file that any session's hook overwrites, so with two dim sessions in use the panel could resolve to the wrong session and show an empty list. The file now records a map of recently active sessions, and when the resolved session has no runs the list falls back to all sessions with an explicit `scopeFallback` reason (plus `sessionId` on every run) instead of silently returning nothing. `list_agent_runs` also accepts an explicit `sessionId`
 - Markdown tables in the execution log rendered as plain text; the renderer now supports tables in addition to headings, lists, quotes, and code blocks
 - The `Stop` hook could not read the session ID (it only checked camelCase `sessionId` while the host sends snake_case `session_id`), so its diagnostics and session scoping were unreliable
 - OpenCode session titles such as `New session - <ISO>` now fall back to the first user message; OpenCode stores message/part content in a `data` JSON column, which the fallback now parses

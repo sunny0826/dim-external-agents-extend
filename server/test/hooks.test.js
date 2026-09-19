@@ -556,7 +556,8 @@ test('hook：UserPromptSubmit 记录活跃会话（供列表默认按本会话�
     stdin: JSON.stringify({ sessionId: 'sess_hook_1' }),
   });
   const saved = JSON.parse(fs.readFileSync(activeFile, 'utf8'));
-  assert.equal(saved.sessionId, 'sess_hook_1');
+  /* 新格式：按会话记录最近活跃时间（多会话并存，不再互相覆盖） */
+  assert.ok(saved.sessions && saved.sessions.sess_hook_1 > 0, `应记录 sess_hook_1：${JSON.stringify(saved)}`);
 });
 
 test('on-stop：记录活跃会话', () => {
@@ -564,7 +565,7 @@ test('on-stop：记录活跃会话', () => {
   const activeFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ea-act-')), 'active.json');
   runStop(dbPath, { sessionId: 'sess_hook_2' }, makeStatePath(), { activeSessionPath: activeFile });
   const saved = JSON.parse(fs.readFileSync(activeFile, 'utf8'));
-  assert.equal(saved.sessionId, 'sess_hook_2');
+  assert.ok(saved.sessions && saved.sessions.sess_hook_2 > 0, `应记录 sess_hook_2：${JSON.stringify(saved)}`);
 });
 
 // ===== 全自动会话命名（hooks/auto-name.js）=====
@@ -707,4 +708,48 @@ test('hook：窗口外的老任务不回溯改名', () => {
 
   runHook(dbPath, { home, env: { EA_EXT_AUTO_NAME: 'on' } });
   assert.equal(readTitle(stateFile), 'New session', '超出 2 小时窗口 → 不回溯');
+});
+
+/* ===== 活跃会话：多会话映射（并发会话不再互相覆盖）===== */
+
+test('active-session：多个会话都记录，读取取最近活跃的一条', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ea-actmap-')), 'active.json');
+  const { recordActiveSession, readActiveSessions, latestActiveSession } = require('../../hooks/active-session');
+  const saved = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = file;
+  try {
+    recordActiveSession({ session_id: 'sess_a' });
+    recordActiveSession({ session_id: 'sess_b' }); // 后写的更新 → 读取应取它
+    const map = readActiveSessions();
+    assert.deepEqual(Object.keys(map).sort(), ['sess_a', 'sess_b'], '两个会话都要在（不再互相覆盖）');
+    assert.equal(latestActiveSession(), 'sess_b');
+  } finally {
+    if (saved === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = saved;
+  }
+});
+
+test('active-session：兼容旧的单会话格式；超期条目被剪枝', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-actmap-'));
+  const file = path.join(dir, 'active.json');
+  const { readActiveSessions, latestActiveSession, recordActiveSession } = require('../../hooks/active-session');
+  const saved = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = file;
+  try {
+    fs.writeFileSync(file, JSON.stringify({ sessionId: 'sess_old_format', updatedAt: 123 }));
+    assert.equal(latestActiveSession(), 'sess_old_format');
+
+    /* 25 小时前的条目应在下一次写入时被剪掉 */
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ sessions: { sess_stale: Date.now() - 25 * 60 * 60 * 1000 } })
+    );
+    recordActiveSession({ session_id: 'sess_fresh' });
+    const map = readActiveSessions();
+    assert.equal(map.sess_stale, undefined, '超期条目应被剪枝');
+    assert.ok(map.sess_fresh, '新会话应保留');
+  } finally {
+    if (saved === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = saved;
+  }
 });

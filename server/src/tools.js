@@ -49,15 +49,31 @@ function json(payload) {
 
 const ACTIVE_SESSION_FILE = 'ea-extend-active-session.json';
 
-/** hook 写入的「当前活跃 dim 会话」文件路径（与 hooks/active-session.js 保持一致）。 */
+/** hook 写入的「最近活跃 dim 会话」文件路径（与 core/active-session.js 保持一致）。 */
 function activeSessionPath() {
   return process.env.EA_EXT_ACTIVE_SESSION || path.join(os.tmpdir(), ACTIVE_SESSION_FILE);
 }
 
-/** 读当前活跃 dim 会话 id；无记录返回 null（此时列表回退为全部）。 */
+/**
+ * 读最近活跃的 dim 会话 id；无记录返回 null（此时列表回退为全部）。
+ * 兼容两种格式：新 `{ sessions: { <sid>: <at> } }`（取最新的一条）与旧 `{ sessionId }`。
+ */
 function readActiveSession() {
   try {
     const parsed = JSON.parse(fs.readFileSync(activeSessionPath(), 'utf8'));
+    if (parsed === null || typeof parsed !== 'object') return null;
+    if (parsed.sessions !== null && typeof parsed.sessions === 'object') {
+      let best = null;
+      let bestAt = -1;
+      for (const [sid, at] of Object.entries(parsed.sessions)) {
+        const t = Number(at);
+        if (typeof sid === 'string' && sid.length > 0 && Number.isFinite(t) && t >= bestAt) {
+          best = sid;
+          bestAt = t;
+        }
+      }
+      if (best !== null) return best;
+    }
     return typeof parsed.sessionId === 'string' && parsed.sessionId.length > 0 ? parsed.sessionId : null;
   } catch {
     return null;
@@ -68,6 +84,8 @@ function readActiveSession() {
 function summarizeRun(run) {
   return {
     taskId: run.taskId,
+    /* 任务属于哪个 dim 会话 —— 回退到「全部会话」时靠它区分来源 */
+    sessionId: run.sessionId || null,
     agentType: run.agentType,
     agentName: run.agentName,
     status: run.status,
@@ -86,29 +104,52 @@ function slimEvent(ev) {
   return rest;
 }
 
-/** T2.1 list_agent_runs */
+/**
+ * T2.1 list_agent_runs
+ *
+ * 会话解析顺序：显式 `sessionId` → 最近活跃会话（hook 写入）→ 全部。
+ * **兜底不静默**：解析到的会话没有任务时，自动回退为全部会话并带上 `scopeFallback`，
+ * 避免「别的会话有外部 Agent 在跑，但这里显示空」这种看起来像没被识别的情况。
+ */
 function listAgentRuns(args = {}, deps = {}) {
   const limit = clampLimit(args.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
-  /* scope=session（默认）：只列「当前活跃 dim 会话」委托的任务；无法确定会话时回退全部。 */
-  const activeSession = args.scope === 'all' ? null : readActiveSession();
-  const effectiveScope = activeSession ? 'session' : 'all';
+  const explicitSession = typeof args.sessionId === 'string' && args.sessionId.length > 0 ? args.sessionId : null;
+  /* scope=session（默认）：只列「本会话」委托的任务；无法确定会话时回退全部。 */
+  const activeSession = explicitSession || (args.scope === 'all' ? null : readActiveSession());
   /* includeFinished 默认 true（模型侧行为不变）；面板传 false 以隐藏已完成/已取消。 */
   const includeFinished = args.includeFinished !== false;
-  try {
-    const runs = listRuns({
+  const query = (sessionId) =>
+    listRuns({
       home: deps.home !== undefined ? deps.home : os.homedir(),
       dbPath: deps.dbPath,
       limit,
       agentType: typeof args.agentType === 'string' && args.agentType.length > 0 ? args.agentType : undefined,
       status: typeof args.status === 'string' && args.status.length > 0 ? args.status : undefined,
-      sessionId: activeSession || undefined,
+      sessionId: sessionId || undefined,
       includeFinished,
     });
+
+  try {
+    let runs = query(activeSession);
+    let scope = activeSession ? 'session' : 'all';
+    let scopeFallback = null;
+    if (activeSession !== null && runs.length === 0) {
+      const all = query(null);
+      if (all.length > 0) {
+        runs = all;
+        scope = 'all';
+        scopeFallback = {
+          from: activeSession,
+          reason: '本会话没有外部 Agent 任务，已回退为全部会话（含其它 dim 会话）',
+        };
+      }
+    }
     return {
       text: json({
         status: runs.length === 0 ? 'empty' : 'ok',
-        scope: effectiveScope,
+        scope,
         sessionId: activeSession || null,
+        ...(scopeFallback === null ? {} : { scopeFallback }),
         count: runs.length,
         runs: runs.map(summarizeRun),
       }),
@@ -402,11 +443,16 @@ const TOOL_DEFINITIONS = [
           enum: ['running', 'completed', 'failed', 'cancelled'],
           description: 'Filter by task status',
         },
+        sessionId: {
+          type: 'string',
+          description:
+            'Target a specific dim session (e.g. sess_1789815375220_xj6kk13bpc). Use this when the user names a session, or when the default session resolution looks wrong.',
+        },
         scope: {
           type: 'string',
           enum: ['session', 'all'],
           description:
-            'session (default): only runs delegated by the current dim session; all: every historical run.',
+            'session (default): only runs delegated by the current dim session; all: every historical run. When the resolved session has no runs the result falls back to all and sets scopeFallback.',
         },
         includeFinished: {
           type: 'boolean',

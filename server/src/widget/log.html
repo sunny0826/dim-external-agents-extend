@@ -493,6 +493,7 @@
       error: null,
       pollTimer: null,
       scope: 'session', // 'session'（默认，本会话）| 'all'（全部历史）
+      scopeFallback: null, // 服务端在「本会话没有任务」时回退为 all 的说明
       freshRuns: true, // 列表进入动画：一次性，轮询重建不重播
       freshEvents: false, // 事件流进入动画：一次性
       runStatus: null, // 当前任务的读取状态（running 时显示流式指示器）
@@ -617,6 +618,13 @@
         elRuns.appendChild(ph);
         return;
       }
+      /* 回退说明：让「本会话没有任务、显示的是全部会话」这件事在列表里可见，而不是静默为空 */
+      if (state.scopeFallback) {
+        var hint = document.createElement('div');
+        hint.className = 'placeholder';
+        hint.textContent = state.scopeFallback.reason;
+        elRuns.appendChild(hint);
+      }
       state.runs.forEach(function (r) {
         var item = document.createElement('div');
         item.className = 'run' + (r.taskId === state.selected ? ' selected' : '');
@@ -679,11 +687,19 @@
         includeFinished: elShowFinished.checked,
       }).then(function (data) {
         state.runs = (data && data.runs) || [];
-        // 服务端在无法确定活跃会话时会回退为 all，这里保持两边状态一致
+        // 服务端在无法确定活跃会话、或本会话没有任务时会回退为 all，这里保持两边状态一致
         if (data && (data.scope === 'session' || data.scope === 'all')) {
           state.scope = data.scope;
+          state.scopeFallback = (data && data.scopeFallback) || null;
           elAllRuns.checked = data.scope === 'all';
-          elScopeBadge.textContent = data.scope === 'all' ? '全部会话' : '本会话';
+          elScopeBadge.textContent = state.scopeFallback
+            ? '全部会话（本会话无任务）'
+            : data.scope === 'all'
+              ? '全部会话'
+              : '本会话';
+          elScopeBadge.title = state.scopeFallback
+            ? state.scopeFallback.reason
+            : '默认只显示本会话委托的外部 Agent';
         }
         renderRuns();
         // inline 卡片：状态行汇总运行中数量
