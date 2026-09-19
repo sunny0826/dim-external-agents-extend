@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { listAgentRuns, readAgentRun } = require('../src/tools');
+const { listAgentRuns, readAgentRun, callDataTool } = require('../src/tools');
 
 // 隔离：默认指向不存在的活跃会话文件（避免读到真实环境的 hook 残留）
 process.env.EA_EXT_ACTIVE_SESSION = path.join(os.tmpdir(), 'ea-tools-test-no-active.json');
@@ -275,4 +275,31 @@ test('list_agent_runs：includeFinished=false 隐藏已完成/已取消', () => 
     if (prev === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
     else process.env.EA_EXT_ACTIVE_SESSION = prev;
   }
+});
+
+/* ===== 设置开关（get_settings / set_auto_name）===== */
+
+test('get_settings / set_auto_name：默认关闭，可开关，写入配置文件', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-tools-settings-'));
+  const initial = JSON.parse(callDataTool('get_settings', {}, { home }).text);
+  assert.equal(initial.status, 'ok');
+  assert.equal(initial.autoName.enabled, false);
+  assert.equal(initial.autoName.source, 'default');
+
+  const on = JSON.parse(callDataTool('set_auto_name', { enabled: true }, { home }).text);
+  assert.equal(on.status, 'ok');
+  assert.equal(on.autoName.enabled, true);
+  assert.equal(on.autoName.source, 'config');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(home, '.dimcode', 'ea-extend-config.json'), 'utf8')).autoName, true);
+
+  const off = JSON.parse(callDataTool('set_auto_name', { enabled: false }, { home }).text);
+  assert.equal(off.autoName.enabled, false);
+});
+
+test('set_auto_name：缺少 enabled 布尔值 → bad_arguments（isError）', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-tools-settings-'));
+  const res = callDataTool('set_auto_name', {}, { home });
+  assert.equal(res.isError, true);
+  assert.equal(JSON.parse(res.text).status, 'bad_arguments');
+  assert.equal(fs.existsSync(path.join(home, '.dimcode', 'ea-extend-config.json')), false, '不写文件');
 });

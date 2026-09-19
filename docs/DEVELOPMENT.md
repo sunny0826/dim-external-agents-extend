@@ -16,6 +16,8 @@
 - 2026-09-19 增补：显示外部 Agent 使用的模型——列表显示派发时选择（`metadata.selectedModelId`，`default` 本地化显示），日志页头部显示会话实际模型（kimi `modelAlias` / cursor assistant `modelName` / codex `turn_context`・`thread_settings`，经 `meta.model` 契约透出）；`list_agent_runs` 返回 `model`、`read_agent_run` 返回 `session.model`、CLI `show` 同时打印两者；日志 Markdown 渲染支持 GFM 表格（表头样式、`:---:` 列对齐、单元格行内标记、宽表横向滚动兜底）；测试 100 项全绿
 - 2026-09-19 二次增补（触发方式强化）：① `UserPromptSubmit` 新增「完成/失败补报」——最近 4 小时内结束且未提醒过的任务注入 `[外部 Agent 完成]` 摘要（每 taskId 去重，上限 3 条），并统一按**本会话**过滤（与 `list_agent_runs` 默认 `scope=session` 口径一致）；② 新增 `PostToolUse` hook（`hooks/on-post-tool.js`，matcher `agent`）在 `create_external` 委托瞬间精确捕获任务（`sourceToolCallId` 精确匹配，2 分钟会话兜底），`Stop` hook 优先按捕获记录提醒、仅在没有捕获时回退扫库（本会话 + 10 分钟窗），消除跨会话串场；③ 修复 `Stop` hook 只读 camelCase `sessionId` 导致会话 id 取不到的缺陷（宿主 stdin 为 snake_case）；测试 120 项全绿
 - 可行性：已验证（2026-09-17，本机实测）；事后与近实时（2s 轮询）可行，完全流式不在范围
+- 2026-09-19 三次增补（会话名称统一，v0.1.0）：新增 `list_external_sessions` / `rename_external_sessions` 两个 MCP 工具与 `sessions` / `rename` 两个 CLI 子命令，外加 skill `external-session-names`。把各外部 agent 自己攒的会话名统一为 `[codex] 09-19 20:31 · 修复 GUO-108 审查问题`：命名优先级 = dim 任务标题 → 会话自身标题（通用标题如 `Help` / `New session - <ISO>` / 纯 uuid 被识别并跳过）→ 首条 prompt 里有意义的行（跳过委托包装样板，含 Issue token 的行优先）→ `未命名会话 · <cwd 末段或会话短码>`。回写（默认 dry-run、写前备份到 `~/.dimcode/ea-extend-backups/`、幂等、保护用户自定义标题）覆盖全部 6 个 agent：codex（`session_index.jsonl.thread_name`）/ kimi（`state.json.title` + `isCustomTitle`）/ cursor（`meta.json.title`）/ grok（`summary.json` 的 `generated_title` + `title_is_manual`，**不写** `session_search.sqlite`——那只是会重建的搜索索引）/ opencode（`session.title`，大库只备份受影响行）/ zcode（`~/.zcode/cli/db/db.sqlite` 的 `session.title` + `title_source='custom'`；桌面 `tasks-index.sqlite` 是任务索引不是会话表，仅展示）。**修掉一处根因级错配**：zcode 适配器原先读桌面任务索引（0 行），真实会话在 CLI 库。测试 159 项全绿
+- 2026-09-19 四次增补（来源标记 + 全自动命名）：① 统一名带来源标记——`[dim]` 表示由 dim 委托产生、`[手动]` 表示其它来源（展示名形如 `[codex] 09-19 20:31 · [dim] 修复 GUO-108 审查问题`），工具输出同时给 `source` 与 `delegated`（后者识别「被某个编排器拉起但不是 dim」的情况），`sourcePrefix: false` 可关闭标记；② 新增 `hooks/auto-name.js`（挂在 UserPromptSubmit / PostToolUse / Stop）：dim 委托后**自动**把该外部会话的泛化标题改写成统一名，无需对话或 CLI——只动能关联到 dim 任务、且自身标题泛化的会话，只回溯 2 小时，写前备份，每任务一次，10 秒节流，静默；`EA_EXT_AUTO_NAME=off` 或 `~/.dimcode/ea-extend-config.json` 的 `{autoName:false}` 可关闭；③ 新增 `auto_name_sessions` 工具与 `autoname` 子命令用于显式回填（默认 dry-run）；④ 名称识别增强：只剩委托前缀的标题（「你是实现者」）算泛化，带任务信息的先剥前缀（「你是 Project V 的执行开发者。任务：时间轴重构」→「任务：时间轴重构」），并修掉「二次改名叠加标记成 `[手动] [手动] …`」的缺陷；⑤ 自动命名改为**默认关闭（opt-in）**：开关由 `~/.dimcode/ea-extend-config.json` 的 `autoName` 决定（环境变量 `EA_EXT_AUTO_NAME` 优先，默认关闭），`autoname --enable/--disable` 一条命令切换；⑥ 开关可在桌面端操作：全屏面板右上角新增「自动命名」开关（widget 经新增的 `get_settings` / `set_auto_name` 工具读写配置），也可在对话里说一句；dim 原生插件设置页只服务内置插件（读 `settingsSchema` + `controller`），第三方插件只能自带开关；⑦ 改名保持原文件排版（kimi state.json / cursor meta.json / grok summary.json 原本是压缩单行，不再被改写成美化格式），并新增 `restore` 子命令与 `restore_backups` 工具按备份字节回滚。测试 191 项全绿
 - 里程碑：M1 工具层可用 → M2 Widget 面板可用 → M3 完整交付
 
 ## 阶段 0 结论（2026-09-17）
@@ -97,14 +99,18 @@ dim-external-agents-extend/
   .codex-plugin/plugin.json  # 插件清单 ✅
   .mcp.json                  # MCP server 声明 ✅（stdio → server/src/index.js）
   server/src/index.js        # MCP server（协议泵 + 冒烟工具 + 数据工具注册）✅
-  server/src/tools.js        # MCP 数据工具 ✅（阶段 2）：list_agent_runs / read_agent_run + 四类语义
-  server/src/cli.js          # CLI 实现 ✅（阶段 4）：list / show / tail
+  server/src/tools.js        # MCP 数据工具 ✅（阶段 2 + 会话名称）：list_agent_runs / read_agent_run / list_external_sessions / rename_external_sessions
+  server/src/cli.js          # CLI 实现 ✅（阶段 4 + 会话名称）：list / show / tail / sessions / rename
   server/src/core/           # 核心数据层 ✅（阶段 1）：events / runs / mapping + adapters/{kimi,cursor,codex}
+  server/src/core/sessions.js     # 会话清单与改名 ✅（2026-09-19）：6 个 agent 的会话读取 + dim 任务标题关联 + 回写 + 全自动命名（autoNameSessions）
+  server/src/core/settings.js     # 插件设置（autoName 开关，默认关闭）✅（2026-09-19）
+  server/src/core/session-name.js # 会话名称归一化 ✅（2026-09-19）：通用标题识别、委托前缀剥离、命名优先级、统一格式化（纯函数）
   server/src/widget/log.html # MCP App widget ✅（阶段 3，2026-09-18 视觉重构）：日志查看器（任务列表 + 事件流 + 2s 轮询）
-  server/test/               # node:test 测试 ✅（90 项；含 widget harness 与 CLI）
-  bin/dim-external-agents-extend  # CLI ✅（阶段 4）：list / show / tail → server/src/cli.js
+  server/test/               # node:test 测试 ✅（175 项；含 widget harness、CLI、会话名称/改名/自动命名）
+  bin/dim-external-agents-extend  # CLI ✅（阶段 4 + 会话名称）：list / show / tail / sessions / rename / autoname → server/src/cli.js
   skills/external-agents-extend/  # 插件 skill ✅（阶段 4）：SKILL.md（使用时机与工具用法）
-  hooks/                     # 自动状态检测（UserPromptSubmit / Stop）✅
+  skills/external-session-names/  # 插件 skill ✅（2026-09-19）：会话名称统一与改名
+  hooks/                     # 自动状态检测（UserPromptSubmit / Stop）+ 全自动会话命名（auto-name.js）✅
   scripts/build-logos.js     # 从本机应用提取 agent 图标（macOS sips）✅
   mise.toml                  # 开发环境固定（node 24.18.0）
 ```

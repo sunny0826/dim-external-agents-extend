@@ -55,9 +55,24 @@ for (const rel of [
   'server/src/index.js',
   'server/src/cli.js',
   'skills/external-agents-extend/SKILL.md',
+  'skills/external-session-names/SKILL.md',
   'hooks/hooks.json',
+  'hooks/auto-name.js',
 ]) {
   check(`file exists: ${rel}`, () => mustExist(rel));
+}
+
+// 1b) 每个 skill 必须有 name/description frontmatter
+for (const rel of ['skills/external-agents-extend/SKILL.md', 'skills/external-session-names/SKILL.md']) {
+  check(`skill frontmatter: ${rel}`, () => {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const m = /^---\n([\s\S]*?)\n---/.exec(text);
+    if (m === null) throw new Error('missing frontmatter block');
+    for (const field of ['name:', 'description:']) {
+      if (!m[1].includes(field)) throw new Error(`frontmatter missing ${field}`);
+    }
+    return rel;
+  });
 }
 
 // 2) manifest JSON

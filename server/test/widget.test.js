@@ -493,3 +493,64 @@ test('widget：模型 chip —— 列表显示派发模型，日志头优先显�
   await settle();
   assert.equal(w.elements.lhModel.textContent, '默认');
 });
+
+/* ===== 自动命名开关（默认关闭）===== */
+
+test('widget：fullscreen 启动会读设置，并把「自动命名」开关反映为真实状态', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+
+  const getCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'get_settings');
+  assert.ok(getCall, 'fullscreen 启动应调用 get_settings');
+  w.dispatch(toolResult(getCall.id, { status: 'ok', autoName: { enabled: true, source: 'config', configPath: '/x' } }));
+  await settle();
+  assert.equal(w.elements.autoName.checked, true, '设置里开启 → 开关应为选中');
+
+  const w2 = bootWidget();
+  w2.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const getCall2 = w2.posted.find((x) => x.method === 'tools/call' && x.params.name === 'get_settings');
+  w2.dispatch(toolResult(getCall2.id, { status: 'ok', autoName: { enabled: false, source: 'default' } }));
+  await settle();
+  assert.equal(w2.elements.autoName.checked, false, '默认关闭 → 开关应为未选中');
+});
+
+test('widget：切换开关 → 调用 set_auto_name 并采用返回状态', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const getCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'get_settings');
+  w.dispatch(toolResult(getCall.id, { status: 'ok', autoName: { enabled: false, source: 'default' } }));
+  await settle();
+
+  w.elements.autoName.checked = true;
+  w.elements.autoName._ls.change();
+  await settle();
+  const setCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'set_auto_name');
+  assert.ok(setCall, '切换后应调用 set_auto_name');
+  assert.equal(setCall.params.arguments.enabled, true);
+
+  w.dispatch(toolResult(setCall.id, { status: 'ok', autoName: { enabled: true, source: 'config' } }));
+  await settle();
+  assert.equal(w.elements.autoName.checked, true);
+  assert.match(w.elements.statusText.textContent, /已开启/);
+});
+
+test('widget：写入失败时开关回到原状态，不假装成功', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const getCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'get_settings');
+  w.dispatch(toolResult(getCall.id, { status: 'ok', autoName: { enabled: false, source: 'default' } }));
+  await settle();
+
+  w.elements.autoName.checked = true;
+  w.elements.autoName._ls.change();
+  await settle();
+  const setCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'set_auto_name');
+  w.dispatch(toolResult(setCall.id, { status: 'write_failed', message: '磁盘只读' }));
+  await settle();
+  assert.equal(w.elements.autoName.checked, false, '写失败 → 回到关闭');
+  assert.match(w.elements.statusText.textContent, /未保存/);
+});

@@ -408,6 +408,7 @@
     <label class="scope"><input type="checkbox" id="allRuns"> 全部会话</label>
     <label class="scope"><input type="checkbox" id="showFinished"> 显示已结束</label>
     <label class="follow"><input type="checkbox" id="follow" checked> 跟随</label>
+    <label class="follow" id="autoNameWrap" title="开启后，dim 委托外部 Agent 时会自动把该会话的泛化标题改成统一名（[dim] …）；默认关闭"><input type="checkbox" id="autoName"> 自动命名</label>
     <button class="refresh" id="refresh" title="重新加载">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       刷新
@@ -505,6 +506,8 @@
     var elDot = document.getElementById('dot');
     var elStatus = document.getElementById('statusText');
     var elFollow = document.getElementById('follow');
+    var elAutoName = document.getElementById('autoName');
+    var elAutoNameWrap = document.getElementById('autoNameWrap');
     var elRefresh = document.getElementById('refresh');
     var elTitle = document.getElementById('title');
     var elBack = document.getElementById('back');
@@ -1496,6 +1499,7 @@
       } else {
         applyView('list'); // fullscreen 默认进列表页（点击任务才进入日志）
         loadRuns(true);
+        loadSettings(); // 反映「自动命名」开关的真实状态
       }
     }
 
@@ -1546,6 +1550,49 @@
     elFollow.addEventListener('change', function () {
       if (elFollow.checked) startPoll(); else stopPoll();
     });
+
+    /* ===== 自动命名开关（默认关闭）：读设置 → 反映到开关；改动 → 写配置 ===== */
+    var AUTO_NAME_TITLE =
+      '开启后，dim 委托外部 Agent 时会自动把该会话的泛化标题改成统一名（[dim] …）；' +
+      '只动 dim 委托、只动泛化标题、写前备份，且只回溯 2 小时。默认关闭。';
+
+    function applyAutoNameState(autoName) {
+      var enabled = Boolean(autoName && autoName.enabled);
+      elAutoName.checked = enabled;
+      var source = autoName && autoName.source;
+      elAutoNameWrap.title =
+        AUTO_NAME_TITLE +
+        (enabled ? '（当前：已开启' + (source === 'env' ? '，由环境变量决定' : '') + '）' : '（当前：已关闭）');
+    }
+
+    function loadSettings() {
+      return callTool('get_settings', {})
+        .then(function (data) {
+          applyAutoNameState(data && data.autoName);
+        })
+        .catch(function () {
+          /* 读不到设置：不禁用开关，避免误判；点击时会再尝试写 */
+        });
+    }
+
+    elAutoName.addEventListener('change', function () {
+      var want = elAutoName.checked;
+      elAutoName.disabled = true;
+      callTool('set_auto_name', { enabled: want })
+        .then(function (data) {
+          if (!data || data.status !== 'ok') throw new Error((data && data.message) || '保存失败');
+          applyAutoNameState(data.autoName);
+          elStatus.textContent = want ? '自动命名已开启' : '自动命名已关闭';
+        })
+        .catch(function (err) {
+          elAutoName.checked = !want; // 写失败：回到原状态，不假装成功
+          elStatus.textContent = '自动命名开关未保存：' + String((err && err.message) || err);
+        })
+        .then(function () {
+          elAutoName.disabled = false;
+        });
+    });
+
     window.addEventListener('beforeunload', stopPoll);
   })();
   </script>

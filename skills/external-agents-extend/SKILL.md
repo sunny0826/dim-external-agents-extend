@@ -16,6 +16,8 @@ description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex /
 - **上下文出现 `[外部 Agent 完成]` 注入**（hook 在任务结束后的下一轮自动补报）时：优先用 `read_agent_run` 读取该任务结果并主动简报，失败任务说明原因；
 - **用户通过输入区的「技能」按钮或斜杠菜单选中本技能（`/external-agents-extend`）时**：不要反问，**立即调用 `open_agent_run_log` 打开列表页**（默认本会话；要看全部历史时提示勾选「全部会话」）。
 
+> 若用户的问题是「外部 agent 的会话名太乱 / 分不清 / 想统一命名」，那是另一件事——用 `external-session-names` 技能（`list_external_sessions` / `rename_external_sessions`），不要用本技能。
+
 ## 工具
 
 1. **`list_agent_runs`** — 列出任务（可按 `agentType` / `status` 过滤，默认最新在前）。`scope` 默认 `session`（只列当前会话委托的任务），传 `all` 看全部历史。返回 `taskId` 与派发时选择的 `model`，供后续读取。
