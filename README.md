@@ -213,4 +213,4 @@ mise exec -- node scripts/validate.js    # structure & version consistency check
 
 This project is licensed under the [MIT License](LICENSE).
 
-Agent icons shown in the UI (Kimi / Cursor / Codex / Grok / OpenCode / ZCode) are copyright of their respective vendors and are used only as local UI identifiers; they are not covered by this project's license. Icons are extracted from locally installed apps by `scripts/build-logos.js`.
+Agent icons shown in the UI (Kimi / Cursor / Codex / Grok / OpenCode / Pi / ZCode) are copyright of their respective vendors and are used only as local UI identifiers; they are not covered by this project's license. All but pi are extracted from locally installed apps by `scripts/build-logos.js`; pi ships no local app, so its official SVG is inlined instead.

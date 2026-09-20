@@ -213,4 +213,4 @@ mise exec -- node scripts/validate.js    # 结构与版本一致性校验（与 
 
 本项目采用 [MIT 许可证](LICENSE)。
 
-界面中展示的 Agent 图标（Kimi / Cursor / Codex / Grok / OpenCode / ZCode）版权归各厂商所有，仅作本机界面标识用途，不在本项目许可证的覆盖范围内；图标由 `scripts/build-logos.js` 从本机已安装的应用中提取。
+界面中展示的 Agent 图标（Kimi / Cursor / Codex / Grok / OpenCode / Pi / ZCode）版权归各厂商所有，仅作本机界面标识用途，不在本项目许可证的覆盖范围内；除 pi 外的图标由 `scripts/build-logos.js` 从本机已安装的应用中提取；pi 不随本地应用分发，因此改用其官方 SVG 内联展示。
