@@ -130,6 +130,8 @@ function listAgentRuns(args = {}, deps = {}) {
       limit,
       agentType: typeof args.agentType === 'string' && args.agentType.length > 0 ? args.agentType : undefined,
       status: typeof args.status === 'string' && args.status.length > 0 ? args.status : undefined,
+      /* statuses：面板的状态多选（覆盖全部状态）；空数组 = 不按状态筛选。 */
+      statuses: Array.isArray(args.statuses) ? args.statuses : undefined,
       sessionId: sessionId || undefined,
       includeFinished,
       includeFailed,
@@ -452,6 +454,12 @@ const TOOL_DEFINITIONS = [
           type: 'string',
           enum: ['running', 'completed', 'failed', 'cancelled'],
           description: 'Filter by task status',
+        },
+        statuses: {
+          type: 'array',
+          items: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
+          description:
+            'Filter by several statuses at once (the log panel uses this for its per-status filter). An empty array means no status filter.',
         },
         sessionId: {
           type: 'string',

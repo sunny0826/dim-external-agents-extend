@@ -96,11 +96,11 @@
   button.back:hover, button.refresh:hover { background: var(--hover); border-color: var(--border-strong); color: var(--text-1); }
   button.back:active, button.refresh:active { transform: scale(0.98); }
   button.back svg, button.refresh svg { width: 12px; height: 12px; flex: 0 0 auto; }
-  label.scope, label.follow, label.global {
+  label.scope, label.global {
     display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
     font-size: 11.5px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap;
   }
-  label.scope input, label.follow input, label.global input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
+  label.scope input, label.global input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
   /* ===== 筛选（列表页）：一个按钮 + 弹出面板 ===== */
   .filter { position: relative; flex: 0 0 auto; display: flex; align-items: center; }
   .filter-btn {
@@ -128,8 +128,10 @@
   }
   .filter-item:hover { background: var(--hover); color: var(--text-1); }
   .filter-item input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
+  .filter-group { padding: 4px 7px 1px; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; color: var(--text-faint); }
+  .filter-sep { height: 1px; margin: 3px 4px; background: var(--border); }
 
-  /* ===== 开关（自动命名）：全局设置，只放列表页 ===== */
+  /* ===== 开关（自动命名 / 跟随）：轨道 + 滑块 ===== */
   /* display:flex 是必须的：包裹层若是默认 block，里面的 inline-flex label 会按基线排版、
      贴在该行顶部，整组比相邻控件高出约 2px（底部留下 strut 的下伸空间） */
   .switch-wrap { position: relative; flex: 0 0 auto; display: flex; align-items: center; }
@@ -421,7 +423,8 @@
   }
   body.inline-card header { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--surface); border-radius: 12px 12px 0 0; }
   body.inline-card header h1 { font-size: 12.5px; }
-  body.inline-card label.follow { display: none; }
+  /* 跟随是日志页控件：列表页与 inline 卡片都不显示（#followSwitch 是开关样式） */
+  body.inline-card #followSwitch { display: none; }
   body.inline-card main { display: block; }
   body.inline-card .content-col { display: none; }
   body.inline-card aside {
@@ -439,7 +442,7 @@
   body.view-log button.back { display: inline-flex; }
   body.view-log aside { display: none; }
   body.view-list .content-col { display: none; }
-  body.view-list label.follow { display: none; }
+  body.view-list #followSwitch { display: none; }
 
   /* ===== 动画 ===== */
   @keyframes rise { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
@@ -475,12 +478,21 @@
         筛选<span class="filter-badge" id="filterBadge" hidden></span>
       </button>
       <div class="filter-menu" id="filterMenu" role="menu" hidden>
+        <div class="filter-group">状态</div>
+        <label class="filter-item"><input type="checkbox" id="stRunning" checked> 运行中</label>
+        <label class="filter-item"><input type="checkbox" id="stCompleted"> 已完成</label>
+        <label class="filter-item"><input type="checkbox" id="stCancelled"> 已取消</label>
+        <label class="filter-item"><input type="checkbox" id="stFailed"> 失败</label>
+        <div class="filter-sep"></div>
+        <div class="filter-group">范围</div>
         <label class="filter-item"><input type="checkbox" id="allRuns"> 全部会话</label>
-        <label class="filter-item"><input type="checkbox" id="showFinished"> 显示已结束</label>
-        <label class="filter-item"><input type="checkbox" id="showFailed"> 显示失败</label>
       </div>
     </div>
-    <label class="follow"><input type="checkbox" id="follow" checked> 跟随</label>
+    <label class="switch" for="follow" id="followSwitch" title="自动滚动到最新事件">
+      <input type="checkbox" id="follow" checked>
+      <span class="switch-track"><span class="switch-knob"></span></span>
+      <span>跟随</span>
+    </label>
     <div class="switch-wrap" id="autoNameWrap">
       <label class="switch" for="autoName">
         <input type="checkbox" id="autoName" role="switch" aria-describedby="autoNameTip">
@@ -595,8 +607,13 @@
     var elBack = document.getElementById('back');
     var elAllRuns = document.getElementById('allRuns');
     var elScopeBadge = document.getElementById('scopeBadge');
-    var elShowFinished = document.getElementById('showFinished');
-    var elShowFailed = document.getElementById('showFailed');
+    /* 状态多选：覆盖 running/completed/cancelled/failed（顺序即面板顺序） */
+    var STATUS_FILTERS = [
+      { key: 'running', label: '运行中', el: document.getElementById('stRunning') },
+      { key: 'completed', label: '已完成', el: document.getElementById('stCompleted') },
+      { key: 'cancelled', label: '已取消', el: document.getElementById('stCancelled') },
+      { key: 'failed', label: '失败', el: document.getElementById('stFailed') },
+    ];
     var elFilterWrap = document.getElementById('filterWrap');
     var elFilterBtn = document.getElementById('filterBtn');
     var elFilterMenu = document.getElementById('filterMenu');
@@ -713,8 +730,8 @@
         ph.className = 'placeholder';
         ph.textContent =
           state.scope === 'all'
-            ? '没有找到委托任务（可在「筛选」里勾选「显示已结束」「显示失败」查看历史）'
-            : '本会话暂无外部 Agent（可在「筛选」里勾选「全部会话」或「显示已结束」查看历史）';
+            ? '没有找到委托任务（在「筛选」里勾选 已完成 / 已取消 / 失败 即可查看历史）'
+            : '本会话暂无外部 Agent（在「筛选」里勾选 全部会话 或其它状态即可查看历史）';
         elRuns.appendChild(ph);
         return;
       }
@@ -780,12 +797,11 @@
 
     function loadRuns(fresh) {
       if (fresh) state.freshRuns = true;
-      // 默认隐藏已完成/已取消；勾选「显示已结束」后带上 includeFinished=true
+      // 状态筛选：面板里勾选的集合（覆盖全部状态）；一个都不勾 = 不按状态筛（显示全部）
       return callTool('list_agent_runs', {
         limit: 50,
         scope: state.scope,
-        includeFinished: elShowFinished.checked,
-        includeFailed: elShowFailed.checked,
+        statuses: STATUS_FILTERS.filter(function (s) { return s.el.checked; }).map(function (s) { return s.key; }),
       }).then(function (data) {
         state.runs = (data && data.runs) || [];
         // 服务端在无法确定活跃会话、或本会话没有任务时会回退为 all，这里保持两边状态一致
@@ -1649,7 +1665,7 @@
       applyView('list');
       loadRuns(true); // 返回列表时刷新（状态可能有变化）
     });
-    /* ===== 筛选组件（列表页）：一个按钮 + 弹出面板，三项条件 ---------- */
+    /* ===== 筛选组件（列表页）：一个按钮 + 弹出面板（状态多选 + 范围） ---------- */
     function closeFilterMenu() {
       elFilterMenu.hidden = true;
       elFilterBtn.setAttribute('aria-expanded', 'false');
@@ -1658,18 +1674,28 @@
       elFilterMenu.hidden = false;
       elFilterBtn.setAttribute('aria-expanded', 'true');
     }
-    /** 角标只数「非默认」的条件：全部会话 / 显示已结束 / 显示失败。 */
+    function checkedStatuses() {
+      return STATUS_FILTERS.filter(function (s) { return s.el.checked; }).map(function (s) { return s.key; });
+    }
+    /** 角标只数「非默认」的条件：默认 = 本会话 · 只看运行中。 */
     function updateFilterBadge() {
       var n = 0;
       if (elAllRuns.checked) n += 1;
-      if (elShowFinished.checked) n += 1;
-      if (elShowFailed.checked) n += 1;
+      if (!STATUS_FILTERS[0].el.checked) n += 1; // 运行中不再勾选（默认勾选）
+      STATUS_FILTERS.slice(1).forEach(function (s) {
+        if (s.el.checked) n += 1;
+      });
       elFilterBadge.textContent = String(n);
       elFilterBadge.hidden = n === 0;
+      var picked = STATUS_FILTERS.filter(function (s) { return s.el.checked; }).map(function (s) { return s.label; });
       elFilterBtn.title =
         n === 0
-          ? '筛选：当前为默认（本会话 · 隐藏已结束 · 隐藏失败）'
-          : '筛选：已启用 ' + n + ' 个条件';
+          ? '筛选：当前为默认（本会话 · 只看运行中）'
+          : '筛选：已启用 ' + n + ' 个条件（' +
+            (elAllRuns.checked ? '全部会话' : '本会话') +
+            ' · ' +
+            (picked.length === 0 ? '全部状态' : picked.join('/')) +
+            '）';
     }
     function onFilterChange() {
       state.scope = elAllRuns.checked ? 'all' : 'session';
@@ -1680,7 +1706,7 @@
       if (ev && ev.stopPropagation) ev.stopPropagation();
       if (elFilterMenu.hidden) openFilterMenu(); else closeFilterMenu();
     });
-    [elAllRuns, elShowFinished, elShowFailed].forEach(function (el) {
+    [elAllRuns].concat(STATUS_FILTERS.map(function (s) { return s.el; })).forEach(function (el) {
       el.addEventListener('change', onFilterChange);
     });
     /* 点面板外 / 按 Esc 关闭（宿主里没有 document 事件时静默跳过） */
@@ -1695,10 +1721,11 @@
         if (ev && ev.key === 'Escape') closeFilterMenu();
       });
     }
-    /* 默认：本会话 · 隐藏已结束 · 隐藏失败（显式声明，避免只依赖 HTML 属性） */
+    /* 默认：本会话 · 只看运行中（显式声明，避免只依赖 HTML 属性） */
     elAllRuns.checked = false;
-    elShowFinished.checked = false;
-    elShowFailed.checked = false;
+    STATUS_FILTERS.forEach(function (s, i) {
+      s.el.checked = i === 0;
+    });
     state.scope = 'session';
     closeFilterMenu(); // 初始收起（HTML 里也有 hidden，这里保证状态一致）
     updateFilterBadge();

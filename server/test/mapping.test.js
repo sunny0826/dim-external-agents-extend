@@ -129,11 +129,68 @@ test('codex：rollout 首行 session_meta 匹配', () => {
   assert.equal(m.ref.id, 'sid-1');
 });
 
+/* ------------------------------- grok ---------------------------------- */
+
+/** 建一个 grok 会话目录：<home>/.grok/sessions/<enc-cwd>/<id>/{summary.json,updates.jsonl} */
+function mkGrokSession(home, id, createdAt, title, cwdEnc = '%2Ftmp%2Fw') {
+  const dir = path.join(home, '.grok', 'sessions', cwdEnc, id);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'summary.json'),
+    JSON.stringify({
+      info: { id, cwd: '/tmp/w' },
+      session_summary: title,
+      created_at: createdAt,
+      current_model_id: 'grok-4.6',
+    })
+  );
+  fs.writeFileSync(path.join(dir, 'updates.jsonl'), '');
+  return dir;
+}
+
+test('grok：按 summary.json.created_at 时间戳定位会话', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  const dir = mkGrokSession(home, '01a0aaa4-2a14-7b02-ab6d-8f5265d9d53b', new Date(ts + 200).toISOString(), '[dim] 实现 M2-05');
+  const run = { taskId: `task_${ts}_k84sal`, agentType: 'grok', taskTitle: '实现 M2-05 绑定与波纹删除联动' };
+  const m = mapRunToSession(run, { home });
+  assert.equal(m.status, 'matched');
+  assert.equal(m.ref.adapter, 'grok');
+  assert.equal(m.ref.kind, 'dir');
+  assert.equal(m.ref.path, dir);
+  assert.equal(m.ref.id, '01a0aaa4-2a14-7b02-ab6d-8f5265d9d53b');
+});
+
+test('grok：标题里的 Issue ID token 优先于 delta（并行任务）', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  mkGrokSession(home, 'sess_a', new Date(ts + 100).toISOString(), '[dim] 审查 GUO-41 PR');
+  mkGrokSession(home, 'sess_b', new Date(ts + 400).toISOString(), '[dim] 审查 GUO-42 PR');
+  const m = mapRunToSession(
+    { taskId: `task_${ts}_x`, agentType: 'grok', taskTitle: '审查 GUO-42 PR #60', prompt: '负责 **GUO-42** 的审查' },
+    { home }
+  );
+  assert.equal(m.ref.id, 'sess_b', '应选标题含 GUO-42 的会话，而不是 delta 更小的 sess_a');
+  assert.equal(m.matchedBy, 'timestamp+token');
+  assert.equal(m.confidence, 'high');
+});
+
+test('grok：超出容差窗口 → unmatched（不误配到别的会话）', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  mkGrokSession(home, 'sess_far', new Date(ts + 60000).toISOString(), '[dim] 很久以后');
+  const m = mapRunToSession({ taskId: `task_${ts}_y`, agentType: 'grok', taskTitle: '无关任务' }, { home });
+  assert.equal(m.status, 'unmatched');
+  assert.equal(m.ref, null);
+});
+
 test('unsupported：不支持的 agent 类型', () => {
   const home = mkTmpHome();
-  const m = mapRunToSession({ taskId: 'task_1789616533081_081muy', agentType: 'grok' }, { home });
+  /* grok 已支持（见 grok 用例）；这里用仍未接入定位的 opencode */
+  const m = mapRunToSession({ taskId: 'task_1789616533081_081muy', agentType: 'opencode' }, { home });
   assert.equal(m.status, 'unsupported');
   assert.equal(m.warnings[0].code, 'unsupported_agent');
+  assert.match(m.warnings[0].message, /暂不支持 opencode 的会话定位/);
 });
 
 test('unsupported：缺少 agentType', () => {

@@ -112,9 +112,10 @@ function selectClause(db) {
 
 /**
  * 列出 agent 任务（toolName='agent'），最新在前。
- * @param {{home?: string, dbPath?: string, limit?: number, agentType?: string, status?: string, sessionId?: string, includeFinished?: boolean, includeFailed?: boolean}} [options]
+ * @param {{home?: string, dbPath?: string, limit?: number, agentType?: string, status?: string, statuses?: string[], sessionId?: string, includeFinished?: boolean, includeFailed?: boolean}} [options]
+ *   statuses 为面板的状态多选（覆盖 running/completed/cancelled/failed），空数组等价于不按状态筛选；
  *   includeFinished=false 时在 SQL 层排除已完成/已取消（默认 true，保持低层中性）；
- *   includeFailed=false 时把 failed 也排除（默认 true；面板的「显示失败」开关用它）。
+ *   includeFailed=false 时把 failed 也排除（默认 true）。
  */
 function listRuns(options = {}) {
   const {
@@ -123,6 +124,7 @@ function listRuns(options = {}) {
     limit = 50,
     agentType,
     status,
+    statuses,
     sessionId,
     includeFinished = true,
     includeFailed = true,
@@ -135,6 +137,15 @@ function listRuns(options = {}) {
     if (typeof status === 'string' && status.length > 0) {
       where.push('status = ?');
       params.push(status);
+    }
+    /* statuses：面板的状态筛选（多选，覆盖全部状态）。
+       空数组等价于「不按状态筛选」——面板把勾选全部取消时显示全部，而不是静默变成空列表。 */
+    if (Array.isArray(statuses) && statuses.length > 0) {
+      const list = statuses.filter((s) => typeof s === 'string' && s.length > 0);
+      if (list.length > 0) {
+        where.push(`status IN (${list.map(() => '?').join(', ')})`);
+        params.push(...list);
+      }
     }
     if (typeof agentType === 'string' && agentType.length > 0) {
       // JSON1 过滤（先 json_valid 防御脏数据）；externalAgentType 优先，subagentType 兜底。

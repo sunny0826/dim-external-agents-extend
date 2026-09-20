@@ -14,7 +14,7 @@ description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex /
 - 需要回放某次委托的工具调用序列与中间输出（排查行为、核对结果）；
 - 用户想在当前会话里"一眼看到"有哪些外部 Agent 在跑（用 `show_external_agents` 卡片）；
 - **上下文出现 `[外部 Agent 完成]` 注入**（hook 在任务结束后的下一轮自动补报）时：优先用 `read_agent_run` 读取该任务结果并主动简报，失败任务说明原因；
-- **用户通过输入区的「技能」按钮或斜杠菜单选中本技能（`/external-agents-extend`）时**：不要反问，**立即调用 `open_agent_run_log` 打开列表页**（默认本会话；要看全部历史时提示勾选「全部会话」）。
+- **用户通过输入区的「技能」按钮或斜杠菜单选中本技能（`/external-agents-extend`）时**：不要反问，**立即调用 `open_agent_run_log` 打开列表页**（默认本会话、只看运行中；要看历史时提示在右上角「筛选」里勾选 已完成 / 已取消 / 失败 或「全部会话」）。
 
 > 若用户的问题是「外部 agent 的会话名太乱 / 分不清 / 想统一命名」，那是另一件事——用 `external-session-names` 技能（`list_external_sessions` / `rename_external_sessions`），不要用本技能。
 
@@ -31,7 +31,7 @@ description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex /
      - `no_log`：任务存在但无日志（`reason` 说明原因，如会话已被清理）；
      - `task_not_found`：无此任务。
 3. **`show_external_agents`** — 在会话里显示一张**内联卡片**，列出最近的外部 Agent 任务（类型/标题/状态，每 5s 刷新）；**点击卡片里的某个 Agent** 即切换到全屏实时日志。当用户想在会话中"一眼看到"外部 Agent 们时优先用它。
-4. **`open_agent_run_log`** — 直接打开全屏日志面板（两页：任务列表页 + 聊天式日志页；列表默认本会话，右上角可切「全部会话」；运行中每 2s 增量）。
+4. **`open_agent_run_log`** — 直接打开全屏日志面板（两页：任务列表页 + 聊天式日志页；列表默认本会话、只看运行中，「筛选」面板覆盖全部状态与「全部会话」；运行中每 2s 增量）。
 
 ## 工作流
 
@@ -53,5 +53,5 @@ dim-external-agents-extend tail task_1789620769595_mugj1d --interval 2000
 ## 注意事项
 
 - 日志内容包含外部 agent 的 prompt 与代码片段，属于敏感内容，按本机内容对待，不要外传；
-- `no_log` 常见原因是外部会话文件被清理；只支持 kimi / cursor / codex，其余 agent 类型会返回 `unsupported`；
+- `no_log` 常见原因是外部会话文件被清理；日志适配目前覆盖 kimi / cursor / codex / grok，其余 agent 类型（opencode / zcode）会返回 `unsupported`；
 - 若桌面端刚重启，等待约 20 秒再开新会话，否则新会话可能拿不到本插件的工具（已知启动竞态）。

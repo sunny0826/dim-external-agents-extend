@@ -82,7 +82,7 @@ You can also pick `/external-agents-extend` from the skills button or slash menu
 - The header shows task context: the agent's logo, agent, model, title, status, and time range
 - The event stream is grouped by type: agent text (Markdown rendered, including tables), tool calls (a collapsible "tool calls" group — expand to see every step), and reasoning/system events (collapsible)
 - With "Follow" enabled, it auto-scrolls to the latest; running tasks append incrementally every 2 seconds
-- The list page keeps its filters in one **筛选** button (a popover with three conditions: all sessions / show finished / show failed); the default view is this session, hiding finished *and* failed work. Filters and the global automatic-naming switch are list-page controls only — a task's log page shows neither
+- The list page keeps its filters in one **筛选** button (a popover with **every status** — running / completed / cancelled / failed — plus a session-scope switch); the default view is this session with only running work, and one click reaches any status or all of them. Filters and the global automatic-naming switch are list-page controls only — a task's log page shows neither (it has the 跟随 follow toggle instead)
 
 ### Session names
 
@@ -159,9 +159,10 @@ dim-external-agents-extend restore                 # preview rolling a rename ba
 | Kimi | ✅ | ✅ | Full (per event) |
 | Cursor | ✅ | ✅ | Task-level (no per-message time, see FAQ) |
 | Codex | ✅ | ✅ | Full (per event) |
-| Grok / OpenCode / ZCode | ✅ | Not yet | — |
+| Grok | ✅ | ✅ | Full (per event) |
+| OpenCode / ZCode | ✅ | Not yet | — |
 
-> The task list comes from dim's own task database, so every agent type can be listed; execution logs require per-agent session format adapters — Kimi / Cursor / Codex are done so far.
+> The task list comes from dim's own task database, so every agent type can be listed; execution logs require per-agent session format adapters — Kimi / Cursor / Codex / Grok are done so far.
 
 ## FAQ
 
@@ -169,7 +170,7 @@ dim-external-agents-extend restore                 # preview rolling a rename ba
 `ui://` resources are cached in memory by the host. Restart DimAgent after installing or updating the plugin.
 
 **I don't see my tasks?**
-By default the panel shows tasks delegated in the current session. Check "All sessions" at the top for history, and "Show finished" for completed / cancelled tasks.
+By default the panel shows only *running* tasks delegated in the current session. Open the **筛选** popover and check 已完成 / 已取消 / 失败 for history, or 全部会话 for other sessions.
 
 **Why is the time column empty?**
 Cursor's session log (`store.db`) does not record per-message timestamps, only the task-level time range (shown at the top of the log page); Kimi / Codex logs include full timestamps.

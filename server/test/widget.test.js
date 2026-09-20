@@ -601,6 +601,23 @@ test('widget：自动命名开关与筛选都是「列表页控件」——详�
   );
 });
 
+test('widget：「跟随」是开关样式，且只在日志详情页显示', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  assert.match(
+    html,
+    /<label class="switch" for="follow" id="followSwitch" title="[^"]*">/,
+    '跟随应复用开关样式（label.switch），而不是普通 checkbox'
+  );
+  assert.match(
+    html,
+    /id="followSwitch"[\s\S]{0,220}?<input type="checkbox" id="follow" checked>[\s\S]{0,220}?<span class="switch-track"><span class="switch-knob"><\/span><\/span>/,
+    '跟随开关应有轨道 + 滑块结构'
+  );
+  assert.ok(!/label\.follow/.test(html), '不应残留 label.follow 的样式或标记');
+  assert.match(html, /body\.view-list #followSwitch \{ display: none; \}/, '列表页不显示跟随（它是日志页控件）');
+  assert.match(html, /body\.inline-card #followSwitch \{ display: none; \}/, 'inline 卡片不显示跟随');
+});
+
 test('widget：开关与筛选的包裹层必须是 flex 容器（否则整组会高出相邻控件约 2px）', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
   // 包裹层若是默认 block，里面的 inline-flex 子元素按基线排版、贴在该行顶部，
@@ -621,7 +638,8 @@ test('widget：筛选集成到一个组件里（按钮 + 面板，三项条件�
   const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
   assert.match(html, /<button class="filter-btn" id="filterBtn"/, '应有筛选按钮');
   assert.match(html, /<div class="filter-menu" id="filterMenu" role="menu" hidden>/, '菜单默认收起');
-  for (const id of ['allRuns', 'showFinished', 'showFailed']) {
+  /* 状态多选：覆盖全部状态（运行中/已完成/已取消/失败）+ 范围（全部会话） */
+  for (const id of ['stRunning', 'stCompleted', 'stCancelled', 'stFailed', 'allRuns']) {
     assert.ok(html.includes(`id="${id}"`), `菜单里应有 ${id}`);
   }
   assert.ok(!/<label class="scope">/.test(html), '旧的散落 checkbox 不应残留');
@@ -629,7 +647,7 @@ test('widget：筛选集成到一个组件里（按钮 + 面板，三项条件�
 
 /* ===== 筛选组件交互 / includeFailed / 详情页 logo ===== */
 
-test('widget：筛选按钮开合、角标计数、并驱动 includeFailed 参数', async () => {
+test('widget：筛选按钮开合、角标计数、并驱动 statuses 参数（覆盖全部状态）', async () => {
   const w = bootWidget();
   w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
   await settle();
@@ -638,30 +656,50 @@ test('widget：筛选按钮开合、角标计数、并驱动 includeFailed 参�
   assert.equal(w.elements.filterMenu.hidden, true);
   assert.equal(w.elements.filterBadge.hidden, true);
   const first = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
-  assert.equal(first.params.arguments.includeFailed, false, '默认不显示失败');
-  assert.equal(first.params.arguments.includeFinished, false, '默认不显示已结束');
+  assert.deepEqual(first.params.arguments.statuses, ['running'], '默认只看运行中');
 
   /* 打开菜单 */
   w.elements.filterBtn._ls.click();
   assert.equal(w.elements.filterMenu.hidden, false);
   assert.equal(w.elements.filterBtn['aria-expanded'], 'true');
 
-  /* 勾选「显示失败」→ 角标 1、重新拉取且 includeFailed=true */
-  w.elements.showFailed.checked = true;
-  w.elements.showFailed._ls.change();
+  /* 勾选「失败」→ 角标 1、重新拉取且 statuses 带上 failed */
+  w.elements.stFailed.checked = true;
+  w.elements.stFailed._ls.change();
   await settle();
   assert.equal(w.elements.filterBadge.textContent, '1');
   assert.equal(w.elements.filterBadge.hidden, false);
   const calls = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
-  assert.equal(calls[calls.length - 1].params.arguments.includeFailed, true);
+  assert.deepEqual(calls[calls.length - 1].params.arguments.statuses, ['running', 'failed']);
 
-  /* 再勾「全部会话」→ 角标 2、scope=all */
+  /* 四个状态全勾 → 角标 3（默认勾选的运行中不算「非默认」） */
+  for (const id of ['stCompleted', 'stCancelled']) {
+    w.elements[id].checked = true;
+    w.elements[id]._ls.change();
+  }
+  await settle();
+  assert.equal(w.elements.filterBadge.textContent, '3');
+  const all = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.deepEqual(all[all.length - 1].params.arguments.statuses, ['running', 'completed', 'cancelled', 'failed']);
+
+  /* 再勾「全部会话」→ 角标 4（三个非默认状态 + 范围）、scope=all */
   w.elements.allRuns.checked = true;
   w.elements.allRuns._ls.change();
   await settle();
-  assert.equal(w.elements.filterBadge.textContent, '2');
+  assert.equal(w.elements.filterBadge.textContent, '4');
+  assert.match(w.elements.filterBtn.title, /全部会话/);
   const calls2 = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
   assert.equal(calls2[calls2.length - 1].params.arguments.scope, 'all');
+
+  /* 全部取消勾选 → statuses 传空数组（服务端视为不按状态筛）且「运行中」不再勾选计 1 */
+  for (const id of ['stRunning', 'stCompleted', 'stCancelled', 'stFailed']) {
+    w.elements[id].checked = false;
+    w.elements[id]._ls.change();
+  }
+  await settle();
+  const empty = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.deepEqual(empty[empty.length - 1].params.arguments.statuses, []);
+  assert.match(w.elements.filterBtn.title, /全部状态/);
 });
 
 test('widget：日志详情页头部显示对应 Agent 的 logo（无图标时隐藏）', async () => {

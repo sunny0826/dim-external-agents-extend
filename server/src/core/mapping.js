@@ -287,9 +287,86 @@ function findCodexRef(run, { home, toleranceMs }) {
   };
 }
 
+/* ------------------------------- grok ---------------------------------- */
+
+/**
+ * grok 会话目录：`~/.grok/sessions/<url 编码的 cwd>/<session-id>/`，
+ * `summary.json.created_at` 是会话创建时间（实测比任务派发晚 0.1–2.8s，5s 窗口足够）。
+ * 与 kimi 同法：先用任务侧的 Issue ID token 与标题交叉消歧，再退回 delta 排序。
+ */
+function findGrokRef(run, { home, toleranceMs }) {
+  const ts = taskTimestampMs(run.taskId);
+  if (ts === null) return null;
+  const root = path.join(home, '.grok', 'sessions');
+  let cwdDirs;
+  try {
+    cwdDirs = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const candidates = [];
+  for (const cwdEntry of cwdDirs) {
+    if (!cwdEntry.isDirectory()) continue;
+    const cwdPath = path.join(root, cwdEntry.name);
+    let sessionDirs;
+    try {
+      sessionDirs = fs.readdirSync(cwdPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const s of sessionDirs) {
+      if (!s.isDirectory()) continue;
+      const dir = path.join(cwdPath, s.name);
+      const summary = safeJson(path.join(dir, 'summary.json'));
+      const createdAt = summary ? Date.parse(summary.created_at) : NaN;
+      if (!Number.isFinite(createdAt)) continue;
+      const delta = Math.abs(createdAt - ts);
+      if (delta <= toleranceMs) candidates.push({ dir, id: s.name, summary, delta });
+    }
+  }
+  if (candidates.length === 0) return null;
+
+  const tokens = extractTaskTokens(run);
+  if (tokens.length > 0) {
+    for (const c of candidates) {
+      const hay = [c.summary && c.summary.session_summary, c.summary && c.summary.generated_title, c.summary && c.summary.agent_name]
+        .filter((v) => typeof v === 'string')
+        .join(' ');
+      c.tokenHits = tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+    }
+    const withHits = candidates.filter((c) => c.tokenHits > 0);
+    if (withHits.length > 0) {
+      withHits.sort((a, b) => b.tokenHits - a.tokenHits || a.delta - b.delta);
+      const top = withHits[0];
+      const tied = withHits.length > 1 && withHits[1].tokenHits === top.tokenHits;
+      if (!tied) {
+        return {
+          status: 'matched',
+          agentType: 'grok',
+          ref: { adapter: 'grok', kind: 'dir', path: top.dir, id: top.id },
+          matchedBy: 'timestamp+token',
+          confidence: 'high',
+          warnings: [],
+        };
+      }
+    }
+  }
+
+  const { best, confidence, warnings } = pickCandidate(candidates);
+  return {
+    status: 'matched',
+    agentType: 'grok',
+    ref: { adapter: 'grok', kind: 'dir', path: best.dir, id: best.id },
+    matchedBy: 'timestamp',
+    confidence,
+    warnings,
+  };
+}
+
 /* ------------------------------ dispatch -------------------------------- */
 
-const FINDERS = { kimi: findKimiRef, cursor: findCursorRef, codex: findCodexRef };
+const FINDERS = { kimi: findKimiRef, cursor: findCursorRef, codex: findCodexRef, grok: findGrokRef };
 
 /**
  * 把任务映射到外部会话引用。
