@@ -56,6 +56,7 @@ for (const rel of [
   'server/src/cli.js',
   'skills/external-agents-extend/SKILL.md',
   'skills/external-session-names/SKILL.md',
+  'skills/show-external-agents/SKILL.md',
   'hooks/hooks.json',
   'hooks/auto-name.js',
 ]) {
@@ -63,7 +64,7 @@ for (const rel of [
 }
 
 // 1b) 每个 skill 必须有 name/description frontmatter
-for (const rel of ['skills/external-agents-extend/SKILL.md', 'skills/external-session-names/SKILL.md']) {
+for (const rel of ['skills/external-agents-extend/SKILL.md', 'skills/external-session-names/SKILL.md', 'skills/show-external-agents/SKILL.md']) {
   check(`skill frontmatter: ${rel}`, () => {
     const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     const m = /^---\n([\s\S]*?)\n---/.exec(text);

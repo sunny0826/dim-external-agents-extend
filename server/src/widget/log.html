@@ -208,6 +208,14 @@
     padding: 2px 5px 2px 3px;
   }
   .run .badge .badge-logo { width: 12px; height: 12px; border-radius: 3px; object-fit: cover; }
+  /* dim 给这个 Agent 起的名字（agentName，如「林澈」）：badge 内的次级信息，
+     中文名不吃 badge 的大写/字距/mono 处理 */
+  .run .badge .badge-name {
+    font-family: var(--sans); font-size: 10.5px; font-weight: 600; line-height: 1;
+    letter-spacing: 0; text-transform: none; color: var(--text-1);
+    max-width: 88px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    margin-left: 1px; padding-left: 5px; border-left: 1px solid var(--border-strong);
+  }
   /* 模型标签（派发时选择；日志页显示会话实际模型） */
   .run .model, .log-head .lh-model {
     flex: 0 0 auto; max-width: 148px; min-width: 0;
@@ -254,6 +262,14 @@
     padding: 2px 6px; border-radius: 4px; color: var(--text-2);
     background: var(--surface); border: 1px solid var(--border);
   }
+  /* dim 给这个 Agent 起的名字（agentName）；无名字时整块隐藏，不占 gap */
+  .log-head .lh-name {
+    flex: 0 0 auto; max-width: 132px; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0;
+    color: var(--text-1);
+  }
+  .log-head .lh-name.hidden { display: none; }
   .log-head .lh-title {
     flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600; letter-spacing: -0.01em;
     color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -512,6 +528,7 @@
       <div class="log-head" id="logHead">
         <img class="lh-logo" id="lhLogo" alt="" hidden>
         <span class="lh-agent" id="lhAgent"></span>
+        <span class="lh-name hidden" id="lhName"></span>
         <span class="lh-model hidden" id="lhModel"></span>
         <span class="lh-title" id="lhTitle"></span>
         <span class="lh-state state" id="lhState"></span>
@@ -621,6 +638,7 @@
     var elLhLogo = document.getElementById('lhLogo');
     var elAutoNameTip = document.getElementById('autoNameTip');
     var elLhAgent = document.getElementById('lhAgent');
+    var elLhName = document.getElementById('lhName');
     var elLhModel = document.getElementById('lhModel');
     var elLhTitle = document.getElementById('lhTitle');
     var elLhState = document.getElementById('lhState');
@@ -638,6 +656,11 @@
       if (typeof m !== 'string' || m.length === 0) return '';
       return m === 'default' ? '默认' : m;
     }
+    /** dim 给该 Agent 起的名字（agentName，如「林澈」）；无值返回 ''（不渲染）。 */
+    function agentDisplayName(r) {
+      var n = r && typeof r.agentName === 'string' ? r.agentName.trim() : '';
+      return n;
+    }
 
     /** 日志页顶部上下文条：当前任务的 agent / 模型 / 标题 / 状态。 */
     function updateLogHead() {
@@ -649,6 +672,9 @@
         elLhLogo.hidden = true;
         elLhLogo.removeAttribute('src');
         elLhAgent.textContent = '';
+        elLhName.textContent = '';
+        elLhName.title = '';
+        elLhName.classList.add('hidden');
         elLhModel.textContent = '';
         elLhModel.title = '';
         elLhModel.classList.add('hidden');
@@ -669,6 +695,11 @@
         elLhLogo.removeAttribute('src');
       }
       elLhAgent.textContent = run.agentType || 'agent';
+      /* dim 给这个 Agent 起的名字（agentName）；没有就整块隐藏 */
+      var who = agentDisplayName(run);
+      elLhName.textContent = who;
+      elLhName.title = who ? 'dim 给该 Agent 起的名字：' + who : '';
+      elLhName.classList.toggle('hidden', !who);
       /* 模型：优先会话实际使用（read_agent_run.session.model），回退 dim 派发时选择。 */
       var actual = state.sessionModel && state.sessionModel.id ? state.sessionModel.id : null;
       var modelLabel = actual || fmtModel(run.model);
@@ -759,6 +790,15 @@
         var rLabel = document.createElement('span');
         rLabel.textContent = r.agentType || '?';
         badge.appendChild(rLabel);
+        /* dim 给这个 Agent 起的名字（agentName）；无名字时不渲染，badge 保持原样 */
+        var rWho = agentDisplayName(r);
+        if (rWho) {
+          var rWhoEl = document.createElement('span');
+          rWhoEl.className = 'badge-name';
+          rWhoEl.textContent = rWho;
+          rWhoEl.title = 'dim 给该 Agent 起的名字：' + rWho;
+          badge.appendChild(rWhoEl);
+        }
         var title = document.createElement('span'); title.className = 'title';
         title.textContent = r.taskTitle || r.taskId;
         title.title = r.taskId;

@@ -12,7 +12,7 @@ When DimAgent hands a task to an external agent (Kimi, Cursor, Codex, ...) via `
 
 ## Features
 
-- **Task list** — List tasks delegated to external agents in the current session (or across all history): agent type, model, status, start time, and duration
+- **Task list** — List tasks delegated to external agents in the current session (or across all history): the agent's type **and the name dim gave it** (`agentName`, e.g. `林澈`), model, status, start time, and duration
 - **Execution logs** — Click a task to see the full event stream: tool calls, file reads, command output, reasoning, and errors; agent text is Markdown-rendered (headings, lists, tables, code blocks); running tasks refresh incrementally every 2 seconds
 - **Inline session card** — Show task cards right in the conversation; click one to open the live log fullscreen
 - **Automatic status hints** — Detect running external tasks in the current session each turn; finished or failed tasks are reported proactively; new tasks open the live log panel automatically, no need to ask
@@ -73,13 +73,13 @@ The plugin provides seven tools, which the model calls automatically:
 | `show_external_agents` | Show task cards in the conversation (click through to the live log) |
 | `open_agent_run_log` | Open the fullscreen log panel |
 
-You can also pick `/external-agents-extend` from the skills button or slash menu in the input area to open the log panel directly, or `/external-session-names` to clean up session names.
+You can also pick `/show-external-agents` from the skills button or slash menu in the input area to just open the panel, `/external-agents-extend` to ask about a specific run, or `/external-session-names` to clean up session names.
 
 ### Fullscreen log panel
 
 ![Log page](docs/images/panel-log.png)
 
-- The header shows task context: the agent's logo, agent, model, title, status, and time range
+- The header shows task context: the agent's logo, agent type, **the name dim gave it** (`agentName`), model, title, status, and time range
 - The event stream is grouped by type: agent text (Markdown rendered, including tables), tool calls (a collapsible "tool calls" group — expand to see every step), and reasoning/system events (collapsible)
 - With "Follow" enabled, it auto-scrolls to the latest; running tasks append incrementally every 2 seconds
 - The list page keeps its filters in one **筛选** button (a popover with **every status** — running / completed / cancelled / failed — plus a session-scope switch); the default view is this session with only running work, and one click reaches any status or all of them. Filters and the global automatic-naming switch are list-page controls only — a task's log page shows neither (it has the 跟随 follow toggle instead)
