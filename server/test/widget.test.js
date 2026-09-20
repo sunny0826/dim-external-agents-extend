@@ -22,6 +22,7 @@ function makeEl(tag) {
     title: '',
     style: {},
     checked: true,
+    hidden: false,
     scrollHeight: 100,
     scrollTop: 0,
     clientHeight: 100,
@@ -55,6 +56,13 @@ function makeEl(tag) {
     },
     setAttribute(k, v) {
       this[k] = v;
+    },
+    removeAttribute(k) {
+      delete this[k];
+    },
+    contains(el) {
+      if (el === this) return true;
+      return (this.children || []).some((c) => c === el || (c.contains && c.contains(el)));
     },
   };
 }
@@ -492,4 +500,235 @@ test('widget：模型 chip —— 列表显示派发模型，日志头优先显�
   );
   await settle();
   assert.equal(w.elements.lhModel.textContent, '默认');
+});
+
+/* ===== 自动命名开关（默认关闭）===== */
+
+test('widget：fullscreen 启动会读设置，并把「自动命名」开关反映为真实状态', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+
+  const getCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'get_settings');
+  assert.ok(getCall, 'fullscreen 启动应调用 get_settings');
+  w.dispatch(toolResult(getCall.id, { status: 'ok', autoName: { enabled: true, source: 'config', configPath: '/x' } }));
+  await settle();
+  assert.equal(w.elements.autoName.checked, true, '设置里开启 → 开关应为选中');
+
+  const w2 = bootWidget();
+  w2.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const getCall2 = w2.posted.find((x) => x.method === 'tools/call' && x.params.name === 'get_settings');
+  w2.dispatch(toolResult(getCall2.id, { status: 'ok', autoName: { enabled: false, source: 'default' } }));
+  await settle();
+  assert.equal(w2.elements.autoName.checked, false, '默认关闭 → 开关应为未选中');
+});
+
+test('widget：切换开关 → 调用 set_auto_name 并采用返回状态', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const getCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'get_settings');
+  w.dispatch(toolResult(getCall.id, { status: 'ok', autoName: { enabled: false, source: 'default' } }));
+  await settle();
+
+  w.elements.autoName.checked = true;
+  w.elements.autoName._ls.change();
+  await settle();
+  const setCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'set_auto_name');
+  assert.ok(setCall, '切换后应调用 set_auto_name');
+  assert.equal(setCall.params.arguments.enabled, true);
+
+  w.dispatch(toolResult(setCall.id, { status: 'ok', autoName: { enabled: true, source: 'config' } }));
+  await settle();
+  assert.equal(w.elements.autoName.checked, true);
+  assert.match(w.elements.statusText.textContent, /已开启/);
+});
+
+test('widget：写入失败时开关回到原状态，不假装成功', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const getCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'get_settings');
+  w.dispatch(toolResult(getCall.id, { status: 'ok', autoName: { enabled: false, source: 'default' } }));
+  await settle();
+
+  w.elements.autoName.checked = true;
+  w.elements.autoName._ls.change();
+  await settle();
+  const setCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'set_auto_name');
+  w.dispatch(toolResult(setCall.id, { status: 'write_failed', message: '磁盘只读' }));
+  await settle();
+  assert.equal(w.elements.autoName.checked, false, '写失败 → 回到关闭');
+  assert.match(w.elements.statusText.textContent, /未保存/);
+});
+
+test('widget：服务端回退为全部会话时，勾选「全部会话」并显示原因（不再静默为空）', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      scope: 'all',
+      sessionId: 'sess_mine',
+      scopeFallback: { from: 'sess_mine', reason: '本会话没有外部 Agent 任务，已回退为全部会话（含其它 dim 会话）' },
+      count: 1,
+      runs: [{ taskId: 'task_1789824567432_zanjgj', sessionId: 'sess_other', agentType: 'kimi', status: 'running', taskTitle: '实现 GUO-109' }],
+    })
+  );
+  await settle();
+  assert.equal(w.elements.allRuns.checked, true, '应勾选「全部会话」');
+  assert.match(w.elements.scopeBadge.textContent, /全部会话（本会话无任务）/);
+  assert.match(collectText(w.elements.runs), /本会话没有外部 Agent 任务/, '列表里应显示回退原因');
+  assert.match(collectText(w.elements.runs), /实现 GUO-109/, '应显示别的会话里运行中的任务');
+});
+
+test('widget：自动命名开关与筛选都是「列表页控件」——详情页与 inline 卡片都不显示', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  assert.match(html, /<div class="switch-wrap" id="autoNameWrap">/, '开关应是独立容器，不再复用 follow/scope 类');
+  assert.match(html, /<span class="tip" id="autoNameTip" role="tooltip"><\/span>/, '开关要有 hover 提示容器');
+  assert.match(
+    html,
+    /body\.view-log \.filter, body\.view-log \.switch-wrap \{ display: none; \}/,
+    '日志详情页应隐藏筛选与开关'
+  );
+  assert.match(
+    html,
+    /body\.inline-card \.filter, body\.inline-card \.switch-wrap \{ display: none; \}/,
+    'inline 卡片应隐藏筛选与开关'
+  );
+});
+
+test('widget：「跟随」是开关样式，且只在日志详情页显示', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  assert.match(
+    html,
+    /<label class="switch" for="follow" id="followSwitch" title="[^"]*">/,
+    '跟随应复用开关样式（label.switch），而不是普通 checkbox'
+  );
+  assert.match(
+    html,
+    /id="followSwitch"[\s\S]{0,220}?<input type="checkbox" id="follow" checked>[\s\S]{0,220}?<span class="switch-track"><span class="switch-knob"><\/span><\/span>/,
+    '跟随开关应有轨道 + 滑块结构'
+  );
+  assert.ok(!/label\.follow/.test(html), '不应残留 label.follow 的样式或标记');
+  assert.match(html, /body\.view-list #followSwitch \{ display: none; \}/, '列表页不显示跟随（它是日志页控件）');
+  assert.match(html, /body\.inline-card #followSwitch \{ display: none; \}/, 'inline 卡片不显示跟随');
+});
+
+test('widget：开关与筛选的包裹层必须是 flex 容器（否则整组会高出相邻控件约 2px）', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  // 包裹层若是默认 block，里面的 inline-flex 子元素按基线排版、贴在该行顶部，
+  // 底部留下 strut 的下伸空间，导致开关/筛选比标题、徽标、刷新按钮高出约 2px。
+  for (const [sel, child] of [
+    ['.switch-wrap', 'label.switch'],
+    ['.filter', 'button.filter-btn'],
+  ]) {
+    const rule = new RegExp(`\\${sel} \\{[^}]*\\}`);
+    const found = html.match(rule);
+    assert.ok(found, `应有 ${sel} 的样式规则`);
+    assert.match(found[0], /display: flex/, `${sel} 必须是 flex 容器，否则 ${child} 会贴顶、整组偏高`);
+    assert.match(found[0], /align-items: center/, `${sel} 需要 align-items: center 才能让 ${child} 垂直居中`);
+  }
+});
+
+test('widget：筛选集成到一个组件里（按钮 + 面板，三项条件）', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  assert.match(html, /<button class="filter-btn" id="filterBtn"/, '应有筛选按钮');
+  assert.match(html, /<div class="filter-menu" id="filterMenu" role="menu" hidden>/, '菜单默认收起');
+  /* 状态多选：覆盖全部状态（运行中/已完成/已取消/失败）+ 范围（全部会话） */
+  for (const id of ['stRunning', 'stCompleted', 'stCancelled', 'stFailed', 'allRuns']) {
+    assert.ok(html.includes(`id="${id}"`), `菜单里应有 ${id}`);
+  }
+  assert.ok(!/<label class="scope">/.test(html), '旧的散落 checkbox 不应残留');
+});
+
+/* ===== 筛选组件交互 / includeFailed / 详情页 logo ===== */
+
+test('widget：筛选按钮开合、角标计数、并驱动 statuses 参数（覆盖全部状态）', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+
+  /* 默认：菜单收起、无角标 */
+  assert.equal(w.elements.filterMenu.hidden, true);
+  assert.equal(w.elements.filterBadge.hidden, true);
+  const first = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.deepEqual(first.params.arguments.statuses, ['running'], '默认只看运行中');
+
+  /* 打开菜单 */
+  w.elements.filterBtn._ls.click();
+  assert.equal(w.elements.filterMenu.hidden, false);
+  assert.equal(w.elements.filterBtn['aria-expanded'], 'true');
+
+  /* 勾选「失败」→ 角标 1、重新拉取且 statuses 带上 failed */
+  w.elements.stFailed.checked = true;
+  w.elements.stFailed._ls.change();
+  await settle();
+  assert.equal(w.elements.filterBadge.textContent, '1');
+  assert.equal(w.elements.filterBadge.hidden, false);
+  const calls = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.deepEqual(calls[calls.length - 1].params.arguments.statuses, ['running', 'failed']);
+
+  /* 四个状态全勾 → 角标 3（默认勾选的运行中不算「非默认」） */
+  for (const id of ['stCompleted', 'stCancelled']) {
+    w.elements[id].checked = true;
+    w.elements[id]._ls.change();
+  }
+  await settle();
+  assert.equal(w.elements.filterBadge.textContent, '3');
+  const all = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.deepEqual(all[all.length - 1].params.arguments.statuses, ['running', 'completed', 'cancelled', 'failed']);
+
+  /* 再勾「全部会话」→ 角标 4（三个非默认状态 + 范围）、scope=all */
+  w.elements.allRuns.checked = true;
+  w.elements.allRuns._ls.change();
+  await settle();
+  assert.equal(w.elements.filterBadge.textContent, '4');
+  assert.match(w.elements.filterBtn.title, /全部会话/);
+  const calls2 = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.equal(calls2[calls2.length - 1].params.arguments.scope, 'all');
+
+  /* 全部取消勾选 → statuses 传空数组（服务端视为不按状态筛）且「运行中」不再勾选计 1 */
+  for (const id of ['stRunning', 'stCompleted', 'stCancelled', 'stFailed']) {
+    w.elements[id].checked = false;
+    w.elements[id]._ls.change();
+  }
+  await settle();
+  const empty = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.deepEqual(empty[empty.length - 1].params.arguments.statuses, []);
+  assert.match(w.elements.filterBtn.title, /全部状态/);
+});
+
+test('widget：日志详情页头部显示对应 Agent 的 logo（无图标时隐藏）', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      count: 2,
+      runs: [
+        { taskId: 'task_kimi', agentType: 'kimi', status: 'running', taskTitle: 'Kimi 任务' },
+        { taskId: 'task_unknown', agentType: 'unknownagent', status: 'running', taskTitle: '未知 agent' },
+      ],
+    })
+  );
+  await settle();
+
+  /* 选中 kimi → logo 出现且是内联图标 */
+  clickFirstRun(w);
+  await settle();
+  assert.equal(w.elements.lhLogo.hidden, false);
+  assert.match(String(w.elements.lhLogo.src), /^data:image\//);
+  assert.match(w.elements.lhLogo.alt, /kimi/);
+
+  /* 选中未知 agent → logo 隐藏 */
+  const items = w.elements.runs.children.filter((c) => c.className.indexOf('run') >= 0);
+  items[1]._ls.click();
+  await settle();
+  assert.equal(w.elements.lhLogo.hidden, true);
 });

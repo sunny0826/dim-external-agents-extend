@@ -287,9 +287,162 @@ function findCodexRef(run, { home, toleranceMs }) {
   };
 }
 
+/* ------------------------------- grok ---------------------------------- */
+
+/** 归一化文本：折叠空白，便于做包含判断。 */
+function normalizeText(value) {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+}
+
+/**
+ * 会话首条 user_message_chunk 的文本（dim 把任务 prompt 原样交给 CLI）。
+ * 只读文件头部若干字节：首条用户消息总在最前面，避免为消歧载入整个 updates.jsonl。
+ */
+function firstUserMessage(dir, maxBytes = 262144) {
+  let fd;
+  try {
+    fd = fs.openSync(path.join(dir, 'updates.jsonl'), 'r');
+    const buf = Buffer.alloc(maxBytes);
+    const n = fs.readSync(fd, buf, 0, maxBytes, 0);
+    for (const line of buf.subarray(0, n).toString('utf8').split('\n')) {
+      const t = line.trim();
+      if (t.length === 0 || t[0] !== '{') continue;
+      let rec;
+      try {
+        rec = JSON.parse(t);
+      } catch {
+        continue; // 可能是被截断的半行，跳过
+      }
+      const update = rec && rec.params && rec.params.update;
+      if (update && update.sessionUpdate === 'user_message_chunk') {
+        const content = update.content;
+        return normalizeText(content && typeof content.text === 'string' ? content.text : '');
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+}
+
+/**
+ * prompt 指纹命中：会话首条用户消息里能找到任务 prompt 的开头或结尾窗口。
+ * 这是比时间戳更强的信号——并行/重试场景下多个会话创建时间只差几十毫秒，
+ * 但 prompt 各不相同（实测两个 grok 会话创建时间相差 94ms、delta 无法区分）。
+ */
+function promptHits(run, sessionUserText) {
+  if (typeof sessionUserText !== 'string' || sessionUserText.length === 0) return false;
+  const prompt = normalizeText(run.prompt);
+  if (prompt.length < 24) return false; // 太短不足以作为指纹
+  const window = 60;
+  const head = prompt.slice(0, window);
+  const tail = prompt.slice(-window);
+  return sessionUserText.includes(head) || (tail.length >= 24 && sessionUserText.includes(tail));
+}
+
+/**
+ * grok 会话目录：`~/.grok/sessions/<url 编码的 cwd>/<session-id>/`，
+ * `summary.json.created_at` 是会话创建时间（实测比任务派发晚 0.1–2.8s，5s 窗口足够）。
+ * 消歧顺序：prompt 指纹（最强）→ 标题里的 Issue ID token → 时间差。
+ */
+function findGrokRef(run, { home, toleranceMs }) {
+  const ts = taskTimestampMs(run.taskId);
+  if (ts === null) return null;
+  const root = path.join(home, '.grok', 'sessions');
+  let cwdDirs;
+  try {
+    cwdDirs = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const candidates = [];
+  for (const cwdEntry of cwdDirs) {
+    if (!cwdEntry.isDirectory()) continue;
+    const cwdPath = path.join(root, cwdEntry.name);
+    let sessionDirs;
+    try {
+      sessionDirs = fs.readdirSync(cwdPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const s of sessionDirs) {
+      if (!s.isDirectory()) continue;
+      const dir = path.join(cwdPath, s.name);
+      const summary = safeJson(path.join(dir, 'summary.json'));
+      const createdAt = summary ? Date.parse(summary.created_at) : NaN;
+      if (!Number.isFinite(createdAt)) continue;
+      const delta = Math.abs(createdAt - ts);
+      if (delta <= toleranceMs) candidates.push({ dir, id: s.name, summary, delta });
+    }
+  }
+  if (candidates.length === 0) return null;
+
+  // ① prompt 指纹：唯一命中即高置信度
+  for (const c of candidates) c.promptHit = promptHits(run, firstUserMessage(c.dir));
+  const byPrompt = candidates.filter((c) => c.promptHit);
+  if (byPrompt.length === 1) {
+    const only = byPrompt[0];
+    return {
+      status: 'matched',
+      agentType: 'grok',
+      ref: { adapter: 'grok', kind: 'dir', path: only.dir, id: only.id },
+      matchedBy: 'timestamp+prompt',
+      confidence: 'high',
+      warnings: [],
+    };
+  }
+
+  // ② 标题里的 Issue ID token
+  const tokens = extractTaskTokens(run);
+  if (tokens.length > 0) {
+    for (const c of candidates) {
+      const hay = [c.summary && c.summary.session_summary, c.summary && c.summary.generated_title, c.summary && c.summary.agent_name]
+        .filter((v) => typeof v === 'string')
+        .join(' ');
+      c.tokenHits = tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+    }
+    const withHits = candidates.filter((c) => c.tokenHits > 0);
+    if (withHits.length > 0) {
+      withHits.sort((a, b) => b.tokenHits - a.tokenHits || a.delta - b.delta);
+      const top = withHits[0];
+      const tied = withHits.length > 1 && withHits[1].tokenHits === top.tokenHits;
+      if (!tied) {
+        return {
+          status: 'matched',
+          agentType: 'grok',
+          ref: { adapter: 'grok', kind: 'dir', path: top.dir, id: top.id },
+          matchedBy: 'timestamp+token',
+          confidence: 'high',
+          warnings: [],
+        };
+      }
+    }
+  }
+
+  // ③ 时间差（多候选且相近时保留歧义警告，不假装确定）
+  const { best, confidence, warnings } = pickCandidate(candidates);
+  return {
+    status: 'matched',
+    agentType: 'grok',
+    ref: { adapter: 'grok', kind: 'dir', path: best.dir, id: best.id },
+    matchedBy: 'timestamp',
+    confidence,
+    warnings,
+  };
+}
+
 /* ------------------------------ dispatch -------------------------------- */
 
-const FINDERS = { kimi: findKimiRef, cursor: findCursorRef, codex: findCodexRef };
+const FINDERS = { kimi: findKimiRef, cursor: findCursorRef, codex: findCodexRef, grok: findGrokRef };
 
 /**
  * 把任务映射到外部会话引用。

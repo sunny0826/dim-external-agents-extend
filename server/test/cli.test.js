@@ -184,3 +184,139 @@ test('无参数 → exit 2 + 用法文本', () => {
   assert.equal(r.status, 2);
   assert.ok(r.stdout.includes('用法'));
 });
+
+/* ------------------------- sessions / rename（T-N4） ------------------------ */
+
+test('sessions --json：会话清单带统一展示名与 key', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const r = run(['sessions', '--json', '--home', home]);
+  assert.equal(r.status, 0);
+  const data = JSON.parse(r.stdout);
+  assert.equal(data.count, 2);
+  for (const s of data.sessions) {
+    assert.match(s.displayName, /^\[kimi\] \d{2}-\d{2} \d{2}:\d{2} · .+/);
+    assert.ok(s.key.startsWith('kimi:'));
+  }
+  /* kimi 会话创建时间与 dim 任务时间戳对齐 → 用 dim 任务标题命名 */
+  const titles = data.sessions.map((s) => s.title).sort();
+  assert.deepEqual(titles, ['演示任务 A', '演示任务 B']);
+});
+
+test('sessions：人类可读输出含表头与 key', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const r = run(['sessions', '--type', 'kimi', '--limit', '1', '--home', home]);
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.includes('AGENT'));
+  assert.ok(r.stdout.includes('kimi:session_'));
+  assert.ok(r.stdout.includes('演示任务 B')); /* limit=1 → 只显示最新（TS+1200） */
+});
+
+test('sessions：空 home 不报错，输出空态', () => {
+  const home = mkTmpHome();
+  const r = run(['sessions', '--home', home]);
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.includes('没有找到会话'));
+});
+
+test('rename：缺 --keys → 用法错误（exit 2）', () => {
+  const r = run(['rename']);
+  assert.equal(r.status, 2);
+  assert.ok(r.stderr.includes('用法'));
+});
+
+test('rename：默认预览不写入，--apply 才写并留备份', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const key = 'kimi:session_aaaaaaaa';
+  const stateFile = path.join(home, '.kimi-code', 'sessions', 'wd_x', 'session_aaaaaaaa', 'state.json');
+  const before = fs.readFileSync(stateFile, 'utf8');
+
+  const preview = run(['rename', '--keys', key, '--home', home]);
+  assert.equal(preview.status, 0);
+  assert.ok(preview.stdout.includes('待改名'));
+  assert.ok(preview.stdout.includes('演示任务 A'));
+  assert.equal(fs.readFileSync(stateFile, 'utf8'), before);
+
+  const applied = run(['rename', '--keys', key, '--apply', '--home', home]);
+  assert.equal(applied.status, 0);
+  assert.ok(applied.stdout.includes('已改名'));
+  assert.ok(applied.stdout.includes('备份'));
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  assert.equal(state.title, '[dim] 演示任务 A');
+  assert.equal(state.isCustomTitle, true);
+});
+
+test('rename：未知 key → exit 1 并说明未找到', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const r = run(['rename', '--keys', 'kimi:nope', '--home', home]);
+  assert.equal(r.status, 1);
+  assert.ok(r.stdout.includes('未找到'));
+});
+
+/* ---------------------------- autoname（T-N5） ---------------------------- */
+
+test('autoname --dry-run：只预览，不改任何文件', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const stateFile = path.join(home, '.kimi-code', 'sessions', 'wd_x', 'session_aaaaaaaa', 'state.json');
+  const before = fs.readFileSync(stateFile, 'utf8');
+  const r = run(['autoname', '--window', '100000', '--dry-run', '--home', home]);
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.includes('待改名'));
+  assert.ok(r.stdout.includes('[dim] 演示任务 A'));
+  assert.equal(fs.readFileSync(stateFile, 'utf8'), before);
+});
+
+test('autoname：默认写入，把泛化标题改成统一名', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const stateFile = path.join(home, '.kimi-code', 'sessions', 'wd_x', 'session_aaaaaaaa', 'state.json');
+  const r = run(['autoname', '--window', '100000', '--home', home]);
+  assert.equal(r.status, 0);
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  assert.equal(state.title, '[dim] 演示任务 A');
+});
+
+test('autoname --json：机器可读输出', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const r = run(['autoname', '--window', '100000', '--dry-run', '--json', '--home', home]);
+  assert.equal(r.status, 0);
+  const data = JSON.parse(r.stdout);
+  assert.equal(data.dryRun, true);
+  assert.ok(data.considered >= 1);
+});
+
+test('autoname --enable / --disable：写配置文件开关（默认关闭）', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const cfg = path.join(home, '.dimcode', 'ea-extend-config.json');
+
+  const on = run(['autoname', '--enable', '--home', home]);
+  assert.equal(on.status, 0);
+  assert.ok(on.stdout.includes('已开启'));
+  assert.equal(JSON.parse(fs.readFileSync(cfg, 'utf8')).autoName, true);
+
+  const listed = run(['autoname', '--window', '100000', '--dry-run', '--home', home]);
+  assert.ok(listed.stdout.includes('自动命名：已开启'));
+
+  const off = run(['autoname', '--disable', '--home', home]);
+  assert.equal(off.status, 0);
+  assert.ok(off.stdout.includes('已关闭'));
+  assert.equal(JSON.parse(fs.readFileSync(cfg, 'utf8')).autoName, false);
+});
+
+test('autoname：默认关闭时提示如何开启，但显式回填仍然生效', () => {
+  const home = mkTmpHome();
+  makeFixture(home);
+  const stateFile = path.join(home, '.kimi-code', 'sessions', 'wd_x', 'session_aaaaaaaa', 'state.json');
+  const r = run(['autoname', '--window', '100000', '--home', home]);
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.includes('已关闭（默认）'));
+  assert.ok(r.stdout.includes('autoname --enable'));
+  /* 显式回填不受开关影响（这是用户主动执行的动作） */
+  assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).title, '[dim] 演示任务 A');
+});

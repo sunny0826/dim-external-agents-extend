@@ -21,6 +21,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { listRuns } = require('../server/src/core/runs');
 const { recordActiveSession } = require('./active-session');
+const { runAutoName } = require('./auto-name');
 
 const WINDOW_MS = 10 * 60 * 1000; // 兜底扫描只看最近 10 分钟内启动的任务
 const STATE_FILE =
@@ -103,6 +104,12 @@ function belongsToSession(entrySessionId, currentSessionId) {
     input = {};
   }
   recordActiveSession(input); // 记录活跃会话（供列表默认按本会话过滤）
+  /* 全自动会话命名：静默执行，不改动本 hook 的放行/阻止语义。 */
+  try {
+    runAutoName();
+  } catch {
+    /* 忽略 */
+  }
   // 诊断心跳：每次 Stop 被调用都留痕（用于判断 hook 是否注册/执行，与是否 block 无关）
   try {
     fs.writeFileSync(

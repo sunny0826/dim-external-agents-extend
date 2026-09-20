@@ -24,6 +24,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { listRuns, findRunByToolCallId } = require('../server/src/core/runs');
 const { recordActiveSession } = require('./active-session');
+const { runAutoName } = require('./auto-name');
 
 const STATE_FILE = process.env.EA_EXT_DELEGATED_STATE || path.join(os.tmpdir(), 'ea-extend-delegated.json');
 const KEEP_MS = 60 * 60 * 1000; // 条目保留 1 小时（足够覆盖「委托 → 回合结束」）
@@ -123,4 +124,13 @@ function sameEntry(a, b) {
   if (state.pending.some((e) => sameEntry(e, entry))) return; // 重复捕获：跳过
   state.pending.push(entry);
   saveState(state);
+
+  /* 全自动会话命名：此刻外部会话通常还没落盘（返回 no-op），真正生效多在下一次
+     UserPromptSubmit / Stop；这里留着是为了「委托后用户长时间不再输入」的场景。
+     静默、可关、带节流，绝不影响本 hook 的写状态语义。 */
+  try {
+    runAutoName();
+  } catch {
+    /* 忽略 */
+  }
 })();

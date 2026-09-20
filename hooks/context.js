@@ -18,6 +18,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { listRuns } = require('../server/src/core/runs');
 const { recordActiveSession } = require('./active-session');
+const { runAutoName } = require('./auto-name');
 
 const FINISHED_WINDOW_MS = 4 * 60 * 60 * 1000; // 只补报最近 4 小时内结束的任务
 const FINISHED_MAX = 3; // 单次最多补报条数
@@ -86,6 +87,12 @@ function saveFinishedState(state) {
 (function main() {
   const input = readStdin();
   recordActiveSession(input);
+  /* 全自动会话命名：把刚委托产生的泛化标题改写成统一名（静默、可关、写前备份）。 */
+  try {
+    runAutoName();
+  } catch {
+    /* 绝不影响会话 */
+  }
   const sessionId = sessionIdOf(input);
 
   let running;

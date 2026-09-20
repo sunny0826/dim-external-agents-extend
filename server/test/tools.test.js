@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { listAgentRuns, readAgentRun } = require('../src/tools');
+const { listAgentRuns, readAgentRun, callDataTool } = require('../src/tools');
 
 // 隔离：默认指向不存在的活跃会话文件（避免读到真实环境的 hook 残留）
 process.env.EA_EXT_ACTIVE_SESSION = path.join(os.tmpdir(), 'ea-tools-test-no-active.json');
@@ -274,5 +274,191 @@ test('list_agent_runs：includeFinished=false 隐藏已完成/已取消', () => 
   } finally {
     if (prev === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
     else process.env.EA_EXT_ACTIVE_SESSION = prev;
+  }
+});
+
+test('list_agent_runs：statuses 覆盖全部状态（多选 / 空数组 = 不筛）', () => {
+  const home = mkTmpHome();
+  const dbPath = path.join(home, 'dimcode.sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TABLE background_tasks (
+    taskId TEXT PRIMARY KEY, sessionId TEXT NOT NULL, sourceRunId TEXT NOT NULL, sourceToolCallId TEXT NOT NULL,
+    toolName TEXT NOT NULL, label TEXT, status TEXT NOT NULL, wakePolicy TEXT NOT NULL, outputPath TEXT,
+    metadata TEXT, startedAt TEXT NOT NULL, completedAt TEXT, completion TEXT, notificationDeliveredAt TEXT)`);
+  const ins = db.prepare(
+    'INSERT INTO background_tasks (taskId, sessionId, sourceRunId, sourceToolCallId, toolName, status, wakePolicy, metadata, startedAt, completedAt) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  );
+  const statuses = ['running', 'completed', 'cancelled', 'failed'];
+  statuses.forEach((st, i) => {
+    ins.run(
+      `task_${TS + i}_st${i}`,
+      's1',
+      'r',
+      'c',
+      'agent',
+      st,
+      'none',
+      JSON.stringify({ subagentType: 'kimi', taskTitle: `${st} 任务` }),
+      `2026-09-16T11:52:5${i}.000Z`,
+      null
+    );
+  });
+  db.close();
+
+  const prev = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = path.join(home, 'no-such-active.json'); // scope 回退 all
+  try {
+    const q = (args) => JSON.parse(listAgentRuns(args, { home, dbPath }).text);
+    assert.equal(q({ statuses: ['failed'] }).count, 1);
+    assert.equal(q({ statuses: ['failed'] }).runs[0].taskId, `task_${TS + 3}_st3`);
+    assert.equal(q({ statuses: ['completed', 'cancelled'] }).count, 2);
+    assert.equal(q({ statuses: statuses }).count, 4);
+    /* 空数组 = 不按状态筛（面板全部取消勾选时不静默变空） */
+    assert.equal(q({ statuses: [] }).count, 4);
+    /* 与旧参数一致：只看运行中 */
+    assert.equal(q({ statuses: ['running'] }).count, 1);
+    assert.equal(q({ includeFinished: false, includeFailed: false }).count, 1);
+  } finally {
+    if (prev === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = prev;
+  }
+});
+
+/* ===== 设置开关（get_settings / set_auto_name）===== */
+
+test('get_settings / set_auto_name：默认关闭，可开关，写入配置文件', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-tools-settings-'));
+  const initial = JSON.parse(callDataTool('get_settings', {}, { home }).text);
+  assert.equal(initial.status, 'ok');
+  assert.equal(initial.autoName.enabled, false);
+  assert.equal(initial.autoName.source, 'default');
+
+  const on = JSON.parse(callDataTool('set_auto_name', { enabled: true }, { home }).text);
+  assert.equal(on.status, 'ok');
+  assert.equal(on.autoName.enabled, true);
+  assert.equal(on.autoName.source, 'config');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(home, '.dimcode', 'ea-extend-config.json'), 'utf8')).autoName, true);
+
+  const off = JSON.parse(callDataTool('set_auto_name', { enabled: false }, { home }).text);
+  assert.equal(off.autoName.enabled, false);
+});
+
+test('set_auto_name：缺少 enabled 布尔值 → bad_arguments（isError）', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-tools-settings-'));
+  const res = callDataTool('set_auto_name', {}, { home });
+  assert.equal(res.isError, true);
+  assert.equal(JSON.parse(res.text).status, 'bad_arguments');
+  assert.equal(fs.existsSync(path.join(home, '.dimcode', 'ea-extend-config.json')), false, '不写文件');
+});
+
+/* ===== 会话解析与兜底（「有任务在跑但没被识别」）===== */
+
+/** 构造两个会话各有任务的最小 fixture。 */
+function makeTwoSessionDb(dir) {
+  const dbPath = path.join(dir, 'dimcode.sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TABLE background_tasks (
+    taskId TEXT PRIMARY KEY, sessionId TEXT, sourceRunId TEXT, sourceToolCallId TEXT,
+    toolName TEXT, label TEXT, status TEXT, wakePolicy TEXT, outputPath TEXT,
+    metadata TEXT, startedAt TEXT, completedAt TEXT, completion TEXT, notificationDeliveredAt TEXT
+  )`);
+  const ins = db.prepare(
+    'INSERT INTO background_tasks (taskId, sessionId, toolName, status, metadata, startedAt) VALUES (?,?,?,?,?,?)'
+  );
+  ins.run('task_1789824567432_zanjgj', 'sess_other', 'agent', 'running', JSON.stringify({ externalAgentType: 'kimi', taskTitle: '实现 GUO-109 字幕编辑调整与删除' }), '2026-09-19T13:29:27.432Z');
+  ins.run('task_1789822936516_8sh2ww', 'sess_mine', 'agent', 'completed', JSON.stringify({ externalAgentType: 'cursor', taskTitle: '本会话已完成的任务' }), '2026-09-19T12:08:56.516Z');
+  db.close();
+  return dbPath;
+}
+
+function writeActiveSessionFile(sessions) {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ea-active-')), 'active.json');
+  fs.writeFileSync(file, JSON.stringify({ sessions, updatedAt: Date.now() }));
+  return file;
+}
+
+test('list_agent_runs：本会话没有任务时回退为全部会话，并明确标注（不再静默为空）', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-two-sess-'));
+  const dbPath = makeTwoSessionDb(dir);
+  const saved = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = writeActiveSessionFile({ sess_mine: Date.now(), sess_other: Date.now() - 1000 });
+  try {
+    /* 活跃会话是 sess_mine，但它只有已完成任务 → 默认隐藏已结束时为空 */
+    const res = JSON.parse(listAgentRuns({ limit: 10, includeFinished: false }, { dbPath }).text);
+    assert.equal(res.scope, 'all', '应回退为全部会话');
+    assert.ok(res.scopeFallback, '应带 scopeFallback 说明');
+    assert.equal(res.scopeFallback.from, 'sess_mine');
+    assert.equal(res.count, 1);
+    assert.equal(res.runs[0].taskId, 'task_1789824567432_zanjgj');
+    assert.equal(res.runs[0].sessionId, 'sess_other', '每条任务带 sessionId，便于区分来源');
+  } finally {
+    if (saved === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = saved;
+  }
+});
+
+test('list_agent_runs：显式 sessionId 优先，且本会话有任务时不做回退', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-two-sess-'));
+  const dbPath = makeTwoSessionDb(dir);
+  const saved = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = writeActiveSessionFile({ sess_mine: Date.now() });
+  try {
+    /* 显式指定另一个会话 */
+    const other = JSON.parse(listAgentRuns({ sessionId: 'sess_other', limit: 10 }, { dbPath }).text);
+    assert.equal(other.sessionId, 'sess_other');
+    assert.equal(other.count, 1);
+    assert.equal(other.runs[0].sessionId, 'sess_other');
+    assert.equal(other.scopeFallback, undefined);
+
+    /* 本会话有任务（含已结束）→ 不回退 */
+    const mine = JSON.parse(listAgentRuns({ limit: 10 }, { dbPath }).text);
+    assert.equal(mine.scope, 'session');
+    assert.equal(mine.scopeFallback, undefined);
+    assert.equal(mine.runs[0].sessionId, 'sess_mine');
+  } finally {
+    if (saved === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = saved;
+  }
+});
+
+test('list_agent_runs：回退只在「别处确实有在跑的任务」时发生，不把历史失败倒出来', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-fallback-scope-'));
+  const dbPath = path.join(dir, 'dimcode.sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TABLE background_tasks (
+    taskId TEXT PRIMARY KEY, sessionId TEXT, sourceRunId TEXT, sourceToolCallId TEXT,
+    toolName TEXT, label TEXT, status TEXT, wakePolicy TEXT, outputPath TEXT,
+    metadata TEXT, startedAt TEXT, completedAt TEXT, completion TEXT, notificationDeliveredAt TEXT
+  )`);
+  const ins = db.prepare(
+    'INSERT INTO background_tasks (taskId, sessionId, toolName, status, metadata, startedAt) VALUES (?,?,?,?,?,?)'
+  );
+  ins.run('task_1789820000000_old000', 'sess_other', 'agent', 'failed', JSON.stringify({ externalAgentType: 'kimi', taskTitle: '历史失败任务' }), '2026-09-16T00:00:00.000Z');
+  db.close();
+
+  const saved = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = writeActiveSessionFile({ sess_mine: Date.now() });
+  try {
+    /* 别处只有历史失败（终态）→ 不回退，保持本会话空态 */
+    const quiet = JSON.parse(listAgentRuns({ limit: 10, includeFinished: false }, { dbPath }).text);
+    assert.equal(quiet.status, 'empty');
+    assert.equal(quiet.scope, 'session', '不应因为历史失败就回退');
+    assert.equal(quiet.scopeFallback, undefined);
+
+    /* 别处有正在运行的任务 → 回退，并说明有几个在跑 */
+    const db2 = new DatabaseSync(dbPath);
+    db2
+      .prepare('INSERT INTO background_tasks (taskId, sessionId, toolName, status, metadata, startedAt) VALUES (?,?,?,?,?,?)')
+      .run('task_1789829000000_run000', 'sess_other', 'agent', 'running', JSON.stringify({ externalAgentType: 'kimi', taskTitle: '正在跑的任务' }), '2026-09-19T13:29:27.432Z');
+    db2.close();
+
+    const busy = JSON.parse(listAgentRuns({ limit: 10, includeFinished: false }, { dbPath }).text);
+    assert.equal(busy.scope, 'all');
+    assert.equal(busy.scopeFallback.activeCount, 1);
+    assert.match(busy.scopeFallback.reason, /有 1 个正在运行/);
+    assert.ok(busy.runs.some((r) => r.taskId === 'task_1789829000000_run000'));
+  } finally {
+    if (saved === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = saved;
   }
 });

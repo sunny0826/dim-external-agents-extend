@@ -15,6 +15,7 @@ const LOADERS = {
   kimi: () => require('./kimi'),
   cursor: () => require('./cursor'),
   codex: () => require('./codex'),
+  grok: () => require('./grok'),
 };
 
 /** 读取会话事件（容错包装）。 */

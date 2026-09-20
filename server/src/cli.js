@@ -13,20 +13,44 @@
  */
 
 const os = require('node:os');
-const { listAgentRuns, readAgentRun } = require('./tools');
+const {
+  listAgentRuns,
+  readAgentRun,
+  listExternalSessionsTool,
+  renameExternalSessionsTool,
+  autoNameSessionsTool,
+  restoreBackupsTool,
+} = require('./tools');
 
-const USAGE = `external-agents-extend — 查看外部 agent 委托任务的执行日志
+const USAGE = `external-agents-extend — 查看外部 agent 委托任务的执行日志与会话名称
 
 用法：
-  dim-external-agents-extend list  [--type <agent>] [--status <s>] [--limit N] [--json]
-  dim-external-agents-extend show  <taskId> [--limit N] [--json]
-  dim-external-agents-extend tail  <taskId> [--interval <ms>]
+  dim-external-agents-extend list    [--type <agent>] [--status <s>] [--limit N] [--json]
+  dim-external-agents-extend show    <taskId> [--limit N] [--json]
+  dim-external-agents-extend tail    <taskId> [--interval <ms>]
+  dim-external-agents-extend sessions [--type <agent>] [--limit N] [--since <iso>] [--search <kw>] [--all] [--json]
+  dim-external-agents-extend rename  --keys <k1,k2> [--title <name>] [--apply] [--force] [--json]
+  dim-external-agents-extend autoname [--window <min>] [--max N] [--dry-run] [--json]
+  dim-external-agents-extend autoname --enable | --disable   # 开关「委托后自动统一会话名」（默认关闭）
+  dim-external-agents-extend restore  [--backup <dir>] [--apply] [--json]
 
 选项：
-  --type <agent>    过滤 agent 类型（kimi / cursor / codex / ...）
+  --type <agent>    过滤 agent 类型（kimi / cursor / codex / grok / opencode / zcode，可逗号分隔）
   --status <s>      过滤状态（running / completed / failed / cancelled）
-  --limit N         条数上限（list 默认 20；show 默认 100）
+  --limit N         条数上限（list / sessions 默认 20；show 默认 100）
   --interval <ms>   tail 轮询间隔（默认 2000，最小 500）
+  --since <iso>     sessions：只看该时间之后创建的会话（ISO 8601）
+  --search <kw>     sessions：按名称 / 原始标题 / 工作目录 / 会话 id 过滤
+  --all             sessions：包含已归档会话
+  --keys <k1,k2>    rename：要改名的会话 key（来自 sessions 输出）
+  --title <name>    rename：指定写入的名称（默认用统一推导名）
+  --apply           rename：真正写入（默认只预览；写入前会备份）
+  --force           rename：连你自己手动设过标题的会话一起改
+  --window <min>    autoname：只看最近 N 分钟内委托的任务（默认 120）
+  --max N           autoname：单次最多改几个（默认 20）
+  --dry-run         autoname：只预览不改（hook 里的自动改名默认会真写）
+  --backup <dir>    restore：指定备份目录（默认取 ~/.dimcode/ea-extend-backups 下最新一个）
+  --enable/--disable  autoname：开启/关闭「委托后自动统一会话名」（写 ~/.dimcode/ea-extend-config.json）
   --json            以 JSON 输出（脚本可解析）
   --home <dir>      覆盖用户主目录（测试用）
   --help            显示本帮助
@@ -34,7 +58,12 @@ const USAGE = `external-agents-extend — 查看外部 agent 委托任务的执�
 示例：
   dim-external-agents-extend list --type kimi --limit 5
   dim-external-agents-extend show task_1789559570749_9kvwq6
-  dim-external-agents-extend tail task_1789620769595_mugj1d --interval 2000`;
+  dim-external-agents-extend sessions --type codex --limit 20
+  dim-external-agents-extend rename --keys codex:01a0b7ee-a483-7a70-835b-78b7f93349e7
+  dim-external-agents-extend autoname --window 1440 --dry-run
+  dim-external-agents-extend autoname --enable  # 打开自动命名（默认关闭）
+  dim-external-agents-extend restore            # 预览回滚（默认最新备份）
+  dim-external-agents-extend restore --apply    # 真正回滚`;
 
 function parseArgs(argv) {
   const opts = { _: [] };
@@ -46,6 +75,19 @@ function parseArgs(argv) {
     else if (a === '--status') opts.status = argv[(i += 1)];
     else if (a === '--interval') opts.interval = Number(argv[(i += 1)]);
     else if (a === '--home') opts.home = argv[(i += 1)];
+    else if (a === '--since') opts.since = argv[(i += 1)];
+    else if (a === '--search') opts.search = argv[(i += 1)];
+    else if (a === '--window') opts.window = Number(argv[(i += 1)]);
+    else if (a === '--max') opts.max = Number(argv[(i += 1)]);
+    else if (a === '--keys') opts.keys = String(argv[(i += 1)] || '').split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    else if (a === '--title') opts.title = argv[(i += 1)];
+    else if (a === '--apply') opts.apply = true;
+    else if (a === '--force') opts.force = true;
+    else if (a === '--dry-run') opts.dryRun = true;
+    else if (a === '--backup') opts.backup = argv[(i += 1)];
+    else if (a === '--enable') opts.enable = true;
+    else if (a === '--disable') opts.disable = true;
+    else if (a === '--all') opts.all = true;
     else if (a === '--help' || a === '-h') opts.help = true;
     else opts._.push(a);
   }
@@ -234,6 +276,174 @@ function cmdTail(opts) {
   return undefined; // 保持进程存活
 }
 
+function cmdSessions(opts) {
+  const res = listExternalSessionsTool(
+    {
+      limit: opts.limit,
+      agentType: opts.agentType,
+      since: opts.since,
+      search: opts.search,
+      includeArchived: opts.all === true,
+    },
+    deps(opts)
+  );
+  const data = JSON.parse(res.text);
+  if (opts.json) {
+    console.log(JSON.stringify(data, null, 2));
+    return res.isError ? 1 : 0;
+  }
+  if (res.isError) {
+    console.error(`错误：${data.message}`);
+    return 1;
+  }
+  if (!data.sessions || data.sessions.length === 0) {
+    console.log('没有找到会话。');
+    return 0;
+  }
+  console.log([padEnd('AGENT', 9), padEnd('TIME', 12), padEnd('SOURCE', 9), 'NAME  (KEY)'].join(' '));
+  for (const s of data.sessions) {
+    const name = clip(s.unifiedName || s.title, 46) + (s.customTitle ? '  [你自定义过]' : '');
+    console.log(
+      [
+        padEnd(clip(s.agentType, 9), 9),
+        padEnd(fmtDateTime(s.createdAt), 12),
+        padEnd(clip(s.titleSource || '-', 9), 9),
+        padEnd(name, 50),
+        s.key,
+      ].join(' ')
+    );
+  }
+  console.log(`\n共 ${data.total} 个会话，显示 ${data.count} 个（--limit / --type / --since 调整）。`);
+  for (const w of data.warnings || []) console.log(`警告：${w.message}`);
+  return 0;
+}
+
+function cmdRename(opts) {
+  if (!opts.keys || opts.keys.length === 0) {
+    console.error('用法：dim-external-agents-extend rename --keys <k1,k2> [--title <name>] [--apply]');
+    return 2;
+  }
+  const res = renameExternalSessionsTool(
+    {
+      keys: opts.keys,
+      title: opts.title,
+      apply: opts.apply === true,
+      force: opts.force === true,
+      agentType: opts.agentType,
+      limit: opts.limit,
+    },
+    deps(opts)
+  );
+  const data = JSON.parse(res.text);
+  if (opts.json) {
+    console.log(JSON.stringify(data, null, 2));
+    return res.isError ? 1 : 0;
+  }
+  if (res.isError) {
+    console.error(`错误：${data.message}`);
+    return 1;
+  }
+  for (const r of data.results || []) {
+    const tag = { renamed: '已改名', planned: '待改名', skipped: '跳过', unsupported: '不支持', failed: '失败', not_found: '未找到' }[r.status] || r.status;
+    console.log(`${tag}  ${r.key}`);
+    if (r.previous !== undefined) console.log(`      原名  ${clip(r.previous, 70) || '（空）'}`);
+    if (r.next !== undefined) console.log(`      新名  ${clip(r.next, 70)}`);
+    if (r.reason) console.log(`      说明  ${r.reason}`);
+    if (r.backupPath) console.log(`      备份  ${r.backupPath}`);
+  }
+  const s = data.summary || {};
+  console.log(
+    `\n${data.dryRun ? '预览（未写入）' : '已写入'}：共 ${s.total} 项，改名 ${s.renamed}，待改名 ${s.planned}，跳过 ${s.skipped}，不支持 ${s.unsupported}，失败 ${s.failed}。`
+  );
+  if (data.dryRun) console.log('确认无误后加 --apply 真正写入（写入前会自动备份）。');
+  if (data.backupDir) console.log(`备份目录：${data.backupDir}`);
+  return s.failed > 0 ? 1 : 0;
+}
+
+function cmdAutoname(opts) {
+  const home = opts.home !== undefined ? opts.home : os.homedir();
+  /* 开关：默认关闭；`autoname --enable/--disable` 写配置文件（桌面端唯一可靠的方式） */
+  if (opts.enable === true || opts.disable === true) {
+    const { writeSettings } = require('./core/settings');
+    const { file } = writeSettings(home, { autoName: opts.enable === true });
+    console.log(`${opts.enable === true ? '已开启' : '已关闭'}「委托后自动统一会话名」：${file}`);
+    console.log(
+      opts.enable === true
+        ? '之后 dim 每次委托外部 Agent，hook 会自动把该会话的泛化标题改写成统一名（只动 dim 委托、只动泛化标题、写前备份）。'
+        : 'hook 不再自动改写任何会话名；手动 `rename` / `autoname` 仍可用。'
+    );
+    return 0;
+  }
+
+  const res = autoNameSessionsTool(
+    {
+      windowMinutes: Number.isFinite(opts.window) ? opts.window : undefined,
+      max: Number.isFinite(opts.max) ? opts.max : undefined,
+      apply: opts.dryRun !== true && opts.apply !== false,
+    },
+    deps(opts)
+  );
+  const data = JSON.parse(res.text);
+  if (opts.json) {
+    console.log(JSON.stringify(data, null, 2));
+    return res.isError ? 1 : 0;
+  }
+  if (res.isError) {
+    console.error(`错误：${data.message}`);
+    return 1;
+  }
+  const sw = data.autoName || {};
+  console.log(
+    `自动命名：${sw.enabled ? '已开启' : '已关闭（默认）'}${sw.enabled ? `（来源：${sw.source}）` : `，用 autoname --enable 开启（${sw.configPath || ''}）`}`
+  );
+  if (!data.results || data.results.length === 0) {
+    console.log(`窗口内没有需要改名的会话（考察 ${data.considered || 0} 个最近委托任务）。`);
+  } else {
+    for (const r of data.results) {
+      const tag = { renamed: '已改名', planned: '待改名', skipped: '跳过', unsupported: '不支持', failed: '失败' }[r.status] || r.status;
+      console.log(`${tag}  ${r.key}`);
+      if (r.previous !== undefined) console.log(`      原名  ${clip(r.previous, 70) || '（空）'}`);
+      if (r.next !== undefined) console.log(`      新名  ${clip(r.next, 70)}`);
+      if (r.reason) console.log(`      说明  ${r.reason}`);
+      if (r.backupPath) console.log(`      备份  ${r.backupPath}`);
+    }
+  }
+  console.log(
+    `\n${data.dryRun ? '预览（未写入）' : '已写入'}：考察 ${data.considered} 个任务，改名 ${data.renamed}，其余为名称已够好 / 自定义标题 / 会话未落盘。`
+  );
+  return 0;
+}
+
+function cmdRestore(opts) {
+  const res = restoreBackupsTool({ backupDir: opts.backup, apply: opts.apply === true }, deps(opts));
+  const data = JSON.parse(res.text);
+  if (opts.json) {
+    console.log(JSON.stringify(data, null, 2));
+    return res.isError ? 1 : 0;
+  }
+  if (res.isError) {
+    console.error(`错误：${data.message}`);
+    return 1;
+  }
+  if (data.status === 'no_backup') {
+    console.log(data.message);
+    return 0;
+  }
+  console.log(`备份目录  ${data.backupDir}`);
+  for (const r of data.results || []) {
+    const tag = { restored: '已还原', planned: '待还原', manual: '需手动', failed: '失败' }[r.status] || r.status;
+    console.log(`${tag}  ${r.file}`);
+    if (r.next !== undefined && r.next !== null) console.log(`      将恢复为  ${clip(r.next, 70)}`);
+    if (r.reason) console.log(`      说明  ${r.reason}`);
+  }
+  const s = data.summary || {};
+  console.log(
+    `\n${data.dryRun ? '预览（未写入）' : '已还原'}：共 ${s.total} 项，还原 ${s.restored}，待还原 ${s.planned}，需手动 ${s.manual}，失败 ${s.failed}。`
+  );
+  if (data.dryRun) console.log('确认无误后加 --apply 真正还原（按备份字节写回）。');
+  return s.failed > 0 ? 1 : 0;
+}
+
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help || opts._.length === 0) {
@@ -244,6 +454,10 @@ function main() {
   if (cmd === 'list') return cmdList(opts);
   if (cmd === 'show') return cmdShow(opts);
   if (cmd === 'tail') return cmdTail(opts);
+  if (cmd === 'sessions') return cmdSessions(opts);
+  if (cmd === 'rename') return cmdRename(opts);
+  if (cmd === 'autoname') return cmdAutoname(opts);
+  if (cmd === 'restore') return cmdRestore(opts);
   console.error(`未知命令：${cmd}\n`);
   console.log(USAGE);
   return 2;
