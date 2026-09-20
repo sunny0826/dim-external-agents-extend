@@ -576,3 +576,18 @@ test('widget：服务端回退为全部会话时，勾选「全部会话」并�
   assert.match(collectText(w.elements.runs), /本会话没有外部 Agent 任务/, '列表里应显示回退原因');
   assert.match(collectText(w.elements.runs), /实现 GUO-109/, '应显示别的会话里运行中的任务');
 });
+
+test('widget：自动命名开关属于「列表页的全局设置」——用 label.global，不被 follow 规则藏进详情页', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  assert.match(html, /<label class="global" id="autoNameWrap"/, '开关应使用 label.global');
+  assert.ok(
+    !/<label class="follow" id="autoNameWrap"/.test(html),
+    '不能复用 follow 类：body.view-list label.follow{display:none} 会把它藏到日志详情页'
+  );
+  assert.match(html, /body\.view-log label\.global \{ display: none; \}/, '日志详情页应隐藏全局开关');
+  assert.match(
+    html,
+    /body\.inline-card label\.follow, body\.inline-card label\.global \{ display: none; \}/,
+    'inline 卡片应隐藏全局开关'
+  );
+});

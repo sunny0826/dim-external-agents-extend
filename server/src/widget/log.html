@@ -96,11 +96,11 @@
   button.back:hover, button.refresh:hover { background: var(--hover); border-color: var(--border-strong); color: var(--text-1); }
   button.back:active, button.refresh:active { transform: scale(0.98); }
   button.back svg, button.refresh svg { width: 12px; height: 12px; flex: 0 0 auto; }
-  label.scope, label.follow {
+  label.scope, label.follow, label.global {
     display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
     font-size: 11.5px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap;
   }
-  label.scope input, label.follow input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
+  label.scope input, label.follow input, label.global input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
   .scope-badge {
     flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
     letter-spacing: 0.07em; text-transform: uppercase; white-space: nowrap;
@@ -357,7 +357,7 @@
   }
   body.inline-card header { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--surface); border-radius: 12px 12px 0 0; }
   body.inline-card header h1 { font-size: 12.5px; }
-  body.inline-card label.follow { display: none; }
+  body.inline-card label.follow, body.inline-card label.global { display: none; }
   body.inline-card main { display: block; }
   body.inline-card .content-col { display: none; }
   body.inline-card aside {
@@ -376,6 +376,8 @@
   body.view-log aside { display: none; }
   body.view-list .content-col { display: none; }
   body.view-list label.follow { display: none; }
+  /* 「自动命名」是全局设置（影响之后所有委托），只放在列表页；日志详情页与 inline 卡片都不显示 */
+  body.view-log label.global { display: none; }
 
   /* ===== 动画 ===== */
   @keyframes rise { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
@@ -408,7 +410,7 @@
     <label class="scope"><input type="checkbox" id="allRuns"> 全部会话</label>
     <label class="scope"><input type="checkbox" id="showFinished"> 显示已结束</label>
     <label class="follow"><input type="checkbox" id="follow" checked> 跟随</label>
-    <label class="follow" id="autoNameWrap" title="开启后，dim 委托外部 Agent 时会自动把该会话的泛化标题改成统一名（[dim] …）；默认关闭"><input type="checkbox" id="autoName"> 自动命名</label>
+    <label class="global" id="autoNameWrap" title="开启后，dim 委托外部 Agent 时会自动把该会话的泛化标题改成统一名（[dim] …）；默认关闭"><input type="checkbox" id="autoName"> 自动命名</label>
     <button class="refresh" id="refresh" title="重新加载">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       刷新

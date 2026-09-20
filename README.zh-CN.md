@@ -106,7 +106,7 @@ ln -s "$(pwd)" ~/.agents/plugins/external-agents-extend
 
 三种等价的开法：
 
-- **面板里点**：打开全屏日志面板，右上角「自动命名」开关点一下；
+- **面板里点**：打开全屏日志面板，在**列表页**右上角点「自动命名」（在「显示已结束」和「刷新」之间）——它是全局设置，所以不进具体任务的日志详情页；
 - **对话里说**：直接说「把自动命名打开 / 关掉」（模型调用 `set_auto_name`）；
 - **命令行**：`dim-external-agents-extend autoname --enable` / `--disable`（写 `~/.dimcode/ea-extend-config.json`）。
 

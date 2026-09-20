@@ -106,7 +106,7 @@ Once enabled, a hook renames the external session right after dim delegates a ta
 
 Three equivalent ways to flip it:
 
-- **In the panel** — open the fullscreen log panel and use the "自动命名" switch in the top-right corner;
+- **In the panel** — open the fullscreen log panel and use the "自动命名" switch on the **list page** (top-right, between "显示已结束" and "刷新"); it is a global setting, so it is not shown on a task's log page;
 - **In the conversation** — just say "turn automatic naming on/off" (the model calls `set_auto_name`);
 - **CLI** — `dim-external-agents-extend autoname --enable` / `--disable` (writes `~/.dimcode/ea-extend-config.json`).
 

@@ -40,7 +40,7 @@ description: 统一外部 agent（codex / kimi / cursor / grok / opencode / zcod
 
 开关方式（三种，等价）：
 
-1. **桌面端面板**：打开全屏面板（`open_agent_run_log`）后，右上角「自动命名」开关点一下；
+1. **桌面端面板**：打开全屏面板（`open_agent_run_log`）后，在**列表页**右上角点「自动命名」开关（全局设置，日志详情页不显示）；
 2. **对话里说一句**：「把自动命名打开 / 关掉」→ 调用 `set_auto_name`（`get_settings` 读当前状态）；
 3. **命令行**：`dim-external-agents-extend autoname --enable` / `--disable`。
 
