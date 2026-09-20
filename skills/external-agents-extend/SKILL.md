@@ -53,5 +53,6 @@ dim-external-agents-extend tail task_1789620769595_mugj1d --interval 2000
 ## 注意事项
 
 - 日志内容包含外部 agent 的 prompt 与代码片段，属于敏感内容，按本机内容对待，不要外传；
-- `no_log` 常见原因是外部会话文件被清理；日志适配目前覆盖 kimi / cursor / codex / grok，其余 agent 类型（opencode / zcode）会返回 `unsupported`；
+- `no_log` 常见原因是外部会话文件被清理；日志适配目前覆盖 kimi / cursor / codex / grok / opencode，其余 agent 类型（zcode）会返回 `unsupported`；
+- **opencode 的日志按 step 粒度推进**：它的库是状态式存储（part 行会被原地改写、文本流式写入），所以插件只在一个 step 结束后才输出该 step 的内容。任务进行中时日志看起来"慢一拍"是正常的，不是卡住；读到 `tool_in_flight` 警告即表示有工具调用尚未返回结果；
 - 若桌面端刚重启，等待约 20 秒再开新会话，否则新会话可能拿不到本插件的工具（已知启动竞态）。

@@ -160,9 +160,12 @@ dim-external-agents-extend restore                 # 预览回滚改名
 | Cursor | ✅ | ✅ | 任务级（无逐条时间，见 FAQ） |
 | Codex | ✅ | ✅ | 完整（逐条） |
 | Grok | ✅ | ✅ | 完整（逐条） |
-| OpenCode / ZCode | ✅ | 暂未支持 | — |
+| OpenCode | ✅ | ✅ | 完整（逐条） |
+| ZCode | ✅ | 暂未支持 | — |
 
-> 任务列表来自 dim 自身的任务库，因此所有 Agent 类型都能列出；执行日志需要按各 Agent 的会话格式单独适配，目前完成了 Kimi / Cursor / Codex / Grok 四种。
+> 任务列表来自 dim 自身的任务库，因此所有 Agent 类型都能列出；执行日志需要按各 Agent 的会话格式单独适配，目前完成了 Kimi / Cursor / Codex / Grok / OpenCode 五种。
+
+> OpenCode 的日志读自 `~/.local/share/opencode/opencode.db`（状态式存储：part 行会随执行进度被原地改写，文本是流式写入的）。因此插件只在一个 step 结束后（`step-finish` 落库）才输出该 step 的内容——用一点延迟换取日志不重复、不被截断。
 
 ## 常见问题
 
@@ -179,7 +182,7 @@ Cursor 的会话日志（`store.db`）本身不记录逐条消息时间，只有
 该 Agent 的日志格式出现了插件未识别的部分。数据不会丢，但部分事件可能以原始形态显示——欢迎提 issue 附上任务 ID。
 
 **任务显示「没有可读日志」？**
-两种情况：① 该任务对应的外部会话已被清理（超出 Agent 自身的会话保留期）；② 该 Agent 类型的日志读取尚未支持（Grok / OpenCode / ZCode）。
+两种情况：① 该任务对应的外部会话已被清理（超出 Agent 自身的会话保留期）；② 该 Agent 类型的日志读取尚未支持（ZCode）。
 
 **任务显示「任务不存在」？**
 任务记录已被清理，或 taskId 有误。

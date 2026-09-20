@@ -16,9 +16,13 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
 const { warning } = require('./events');
 
 const DEFAULT_TOLERANCE_MS = 5000;
+
+/** opencode CLI 启动 + 建会话有数秒开销，与 sessions.js 的 TOLERANCE_MS.opencode 对齐。 */
+const OPENCODE_TOLERANCE_MS = 30000;
 
 /** taskId → 毫秒时间戳；无法解析返回 null。 */
 function taskTimestampMs(taskId) {
@@ -31,6 +35,28 @@ function safeJson(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
     return null;
+  }
+}
+
+/** 宽松解析 sqlite 的 JSON 文本列（可能是对象、字符串或损坏值）。 */
+function safeJsonText(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function closeQuietly(db) {
+  if (db === undefined || db === null) return;
+  try {
+    db.close();
+  } catch {
+    /* best-effort */
   }
 }
 
@@ -440,9 +466,157 @@ function findGrokRef(run, { home, toleranceMs }) {
   };
 }
 
+/* ------------------------------ opencode -------------------------------- */
+
+/**
+ * opencode 会话位于 `~/.local/share/opencode/opencode.db` 的 `session` 表
+ * （`time_created` 即会话创建时间）。CLI 启动 + 建会话有数秒开销，用 30s 窗口。
+ *
+ * 消歧顺序与 grok 一致：**prompt 指纹 > 标题命中 > Issue ID token > 时间差**。
+ * prompt 取该会话**首条 user message 的 text part**——dim 把任务 prompt 原样交给 CLI，
+ * 所以首条 user 文本就是任务 prompt（opencode 把内容放在 `part.data` / `message.data`
+ * 的 JSON 列里，role 在 `message.data.role`，没有独立文本列）。
+ *
+ * 标题**不能**单独作为强信号：自动命名是 opt-in，未开启时 dim 委托的会话标题仍是
+ * `New session - <ISO>`；开启后才会被改写成 `[dim] <任务标题>`。因此标题只用于
+ * 「唯一命中」的加速判定，指纹与时间差仍是兜底。
+ */
+function makeOpencodePromptLoader(dbFile) {
+  const cache = new Map();
+  return (sessionId) => {
+    if (cache.has(sessionId)) return cache.get(sessionId);
+    let value = null;
+    let db;
+    try {
+      db = new DatabaseSync(dbFile, { readOnly: true });
+      const rows = db
+        .prepare(
+          `SELECT p.data AS part_data, m.data AS msg_data
+             FROM part p JOIN message m ON m.id = p.message_id
+            WHERE p.session_id = ?
+            ORDER BY p.time_created ASC
+            LIMIT 20`
+        )
+        .all(sessionId);
+      for (const row of rows) {
+        const msg = safeJsonText(row.msg_data);
+        if (!msg || msg.role !== 'user') continue;
+        const part = safeJsonText(row.part_data);
+        if (!part || part.type !== 'text' || typeof part.text !== 'string') continue;
+        if (part.text.trim().length === 0) continue;
+        value = part.text;
+        break;
+      }
+    } catch {
+      value = null;
+    } finally {
+      closeQuietly(db);
+    }
+    cache.set(sessionId, value);
+    return value;
+  };
+}
+
+function findOpencodeRef(run, { home, toleranceMs }) {
+  const ts = taskTimestampMs(run.taskId);
+  if (ts === null) return null;
+  const dbFile = path.join(home, '.local', 'share', 'opencode', 'opencode.db');
+  const window = Math.max(toleranceMs, OPENCODE_TOLERANCE_MS);
+
+  let db;
+  try {
+    db = new DatabaseSync(dbFile, { readOnly: true });
+  } catch {
+    return null;
+  }
+
+  const candidates = [];
+  try {
+    const rows = db
+      .prepare(
+        `SELECT id, title, directory, parent_id, time_created FROM session
+          WHERE time_created >= ? AND time_created <= ?`
+      )
+      .all(ts - window, ts + window);
+    for (const row of rows) {
+      if (typeof row.id !== 'string' || row.id.length === 0) continue;
+      const delta = Math.abs(Number(row.time_created) - ts);
+      if (!Number.isFinite(delta)) continue;
+      candidates.push({ row, id: row.id, delta });
+    }
+  } catch {
+    return null;
+  } finally {
+    closeQuietly(db);
+  }
+  if (candidates.length === 0) return null;
+
+  const matched = (c, matchedBy) => ({
+    status: 'matched',
+    agentType: 'opencode',
+    ref: { adapter: 'opencode', kind: 'db', path: dbFile, id: c.id },
+    matchedBy,
+    confidence: 'high',
+    warnings: [],
+  });
+
+  // ① prompt 指纹：唯一命中即高置信度（并行委托下创建时间可能只差几十毫秒）
+  const loadPrompt = makeOpencodePromptLoader(dbFile);
+  for (const c of candidates) c.promptHit = promptHits(run, loadPrompt(c.id));
+  const byPrompt = candidates.filter((c) => c.promptHit);
+  if (byPrompt.length === 1) return matched(byPrompt[0], 'timestamp+prompt');
+
+  // ② 标题命中：会话标题里含任务标题（自动命名开启过，或用户手改成了任务名）
+  const taskTitle = normalizeText(run.taskTitle || '');
+  if (taskTitle.length >= 6) {
+    for (const c of candidates) {
+      const title = normalizeText(typeof c.row.title === 'string' ? c.row.title : '');
+      c.titleHit = title.length > 0 && title.includes(taskTitle);
+    }
+    const byTitle = candidates.filter((c) => c.titleHit);
+    if (byTitle.length === 1) return matched(byTitle[0], 'timestamp+title');
+  }
+
+  // ③ Issue ID token（如 GUO-63）：与会话标题 / 首条 prompt 交叉比对
+  const tokens = extractTaskTokens(run);
+  if (tokens.length > 0) {
+    for (const c of candidates) {
+      const hay = [
+        typeof c.row.title === 'string' ? c.row.title : '',
+        c.promptHit === false ? '' : String(loadPrompt(c.id) || ''),
+      ].join(' ');
+      c.tokenHits = tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+    }
+    const withHits = candidates.filter((c) => c.tokenHits > 0);
+    if (withHits.length > 0) {
+      withHits.sort((a, b) => b.tokenHits - a.tokenHits || a.delta - b.delta);
+      const top = withHits[0];
+      const tied = withHits.length > 1 && withHits[1].tokenHits === top.tokenHits;
+      if (!tied) return matched(top, 'timestamp+token');
+    }
+  }
+
+  // ④ 时间差（多候选且相近时保留歧义警告，不假装确定）
+  const { best, confidence, warnings } = pickCandidate(candidates);
+  return {
+    status: 'matched',
+    agentType: 'opencode',
+    ref: { adapter: 'opencode', kind: 'db', path: dbFile, id: best.id },
+    matchedBy: 'timestamp',
+    confidence,
+    warnings,
+  };
+}
+
 /* ------------------------------ dispatch -------------------------------- */
 
-const FINDERS = { kimi: findKimiRef, cursor: findCursorRef, codex: findCodexRef, grok: findGrokRef };
+const FINDERS = {
+  kimi: findKimiRef,
+  cursor: findCursorRef,
+  codex: findCodexRef,
+  grok: findGrokRef,
+  opencode: findOpencodeRef,
+};
 
 /**
  * 把任务映射到外部会话引用。

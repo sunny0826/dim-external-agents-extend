@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **OpenCode logs** — opencode runs now show their execution log instead of `no readable log: opencode session lookup is not supported yet`. A session is located by `~/.local/share/opencode/opencode.db` `session.time_created` (30s window, since the CLI takes seconds to boot) with the same tie-breakers as grok: prompt fingerprint → session title → Issue-ID token → closest timestamp; on this machine all 4 opencode runs resolve with high confidence. The adapter turns `message` / `part` rows into the normalized stream (task prompt, thinking, assistant text, tool calls with arguments and results, step boundaries, token usage and cost, patches, compaction, attached files). Unlike the append-only jsonl agents, opencode is **state-based**: a `part` row is rewritten as it progresses (`tool` goes `running` → `completed`) and text is streamed into it (measured up to 35s of streaming for text and 83s for reasoning), so a byte-offset or monotonic-timestamp cursor would leave a tool stuck on "running" forever and truncate streamed text. The adapter therefore uses opencode's own step structure as a **stability boundary** and only emits a step's content once that step has finished — a running task's log may lag by one step, but it is never duplicated or truncated mid-stream, and a `tool_in_flight` warning tells you a tool call has not returned yet. The cursor is a `(time_created, id)` tuple, so every part is emitted exactly once. Inline `file` parts keep only their MIME type and filename — the base64 data URI (measured up to several MB each) never enters an event
+
 ## [0.1.0] - 2026-09-19
 
 External-agent session names are now normalized and can be written back, so both the plugin and the agents' own pickers become readable.

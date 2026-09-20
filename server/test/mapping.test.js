@@ -221,15 +221,156 @@ test('grok：超出容差窗口 → unmatched（不误配到别的会话）', ()
 
 test('unsupported：不支持的 agent 类型', () => {
   const home = mkTmpHome();
-  /* grok 已支持（见 grok 用例）；这里用仍未接入定位的 opencode */
-  const m = mapRunToSession({ taskId: 'task_1789616533081_081muy', agentType: 'opencode' }, { home });
+  /* grok / opencode 已支持（见各自用例）；这里用仍未接入定位的 zcode */
+  const m = mapRunToSession({ taskId: 'task_1789616533081_081muy', agentType: 'zcode' }, { home });
   assert.equal(m.status, 'unsupported');
   assert.equal(m.warnings[0].code, 'unsupported_agent');
-  assert.match(m.warnings[0].message, /暂不支持 opencode 的会话定位/);
+  assert.match(m.warnings[0].message, /暂不支持 zcode 的会话定位/);
 });
 
 test('unsupported：缺少 agentType', () => {
   const m = mapRunToSession({ taskId: 'task_1789616533081_081muy' });
   assert.equal(m.status, 'unsupported');
   assert.equal(m.warnings[0].code, 'no_agent_type');
+});
+
+/* ------------------------------- opencode -------------------------------- */
+
+const { DatabaseSync } = require('node:sqlite');
+
+/**
+ * 建一个最小 opencode 库。sessions: [{ id, title, timeCreated, prompt, directory }]
+ * （prompt 非空时写入 user message + 首条 text part，与真实库结构一致）
+ */
+function mkOpencodeDb(home, sessions) {
+  const dir = path.join(home, '.local', 'share', 'opencode');
+  fs.mkdirSync(dir, { recursive: true });
+  const dbFile = path.join(dir, 'opencode.db');
+  const db = new DatabaseSync(dbFile);
+  db.exec(`
+    CREATE TABLE session (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT '', parent_id TEXT,
+      slug TEXT NOT NULL DEFAULT '', directory TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '', version TEXT NOT NULL DEFAULT '',
+      agent TEXT, model TEXT,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL
+    );
+    CREATE TABLE message (
+      id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
+    );
+    CREATE TABLE part (
+      id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
+    );
+  `);
+  const insSession = db.prepare(
+    'INSERT INTO session (id, title, directory, time_created, time_updated) VALUES (?,?,?,?,?)'
+  );
+  const insMsg = db.prepare(
+    'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?)'
+  );
+  const insPart = db.prepare(
+    'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?,?)'
+  );
+  let seq = 0;
+  for (const s of sessions) {
+    insSession.run(s.id, s.title || '', s.directory || '/tmp/w', s.timeCreated, s.timeCreated);
+    if (typeof s.prompt !== 'string' || s.prompt.length === 0) continue;
+    seq += 1;
+    const n = String(seq).padStart(4, '0');
+    insMsg.run(`msg_${n}`, s.id, s.timeCreated, s.timeCreated, JSON.stringify({ role: 'user' }));
+    insPart.run(
+      `prt_${n}`,
+      `msg_${n}`,
+      s.id,
+      s.timeCreated,
+      s.timeCreated,
+      JSON.stringify({ type: 'text', text: s.prompt })
+    );
+  }
+  db.close();
+  return dbFile;
+}
+
+test('opencode：prompt 指纹区分并行委托的孪生会话', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  const implPrompt = '你负责实现 Linear Issue **GUO-68**（M2-04b 字幕列表 UI 与播放联动）。完整范围与验收判据在 Issue 描述里，请先读。';
+  const reviewPrompt = '你是独立审查者。审查 PR #53，产出结论。范围刻意切小；若某步耗时很长，先给出已得结论再继续。';
+  mkOpencodeDb(home, [
+    { id: 'ses_impl', title: 'New session - 2026-09-16T13:05:37.026Z', timeCreated: ts + 850, prompt: implPrompt },
+    { id: 'ses_review', title: 'New session - 2026-09-16T13:05:38.026Z', timeCreated: ts + 944, prompt: reviewPrompt },
+  ]);
+
+  const impl = mapRunToSession(
+    { taskId: `task_${ts}_ithu6u`, agentType: 'opencode', taskTitle: '实现 M2-04b', prompt: implPrompt },
+    { home }
+  );
+  const review = mapRunToSession(
+    { taskId: `task_${ts}_a4zhb4`, agentType: 'opencode', taskTitle: '审查 M2-04a PR #54', prompt: reviewPrompt },
+    { home }
+  );
+
+  assert.equal(impl.ref.id, 'ses_impl');
+  assert.equal(review.ref.id, 'ses_review');
+  assert.equal(impl.ref.adapter, 'opencode');
+  assert.equal(impl.ref.kind, 'db');
+  assert.equal(impl.matchedBy, 'timestamp+prompt');
+  assert.equal(impl.confidence, 'high');
+  assert.deepEqual(impl.warnings, [], 'prompt 唯一命中时不应再报歧义');
+});
+
+test('opencode：标题命中（自动命名过的会话）优先于 delta', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  mkOpencodeDb(home, [
+    { id: 'ses_a', title: '[dim] 实现 M2-05 绑定与波纹删除联动', timeCreated: ts + 200 },
+    { id: 'ses_b', title: '[dim] 审查 M2-06a PR #53 的边界条件', timeCreated: ts + 400 },
+  ]);
+  const m = mapRunToSession(
+    { taskId: `task_${ts}_k84sal`, agentType: 'opencode', taskTitle: '实现 M2-05 绑定与波纹删除联动' },
+    { home }
+  );
+  assert.equal(m.ref.id, 'ses_a', '应选标题命中任务标题的会话，而不是 delta 更小的 sess_b');
+  assert.equal(m.matchedBy, 'timestamp+title');
+  assert.equal(m.confidence, 'high');
+});
+
+test('opencode：无指纹无标题时按 delta，并保留歧义警告', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  mkOpencodeDb(home, [
+    { id: 'ses_a', title: 'New session - 2026-09-16T13:05:37.026Z', timeCreated: ts + 500 },
+    { id: 'ses_b', title: 'New session - 2026-09-16T13:05:37.100Z', timeCreated: ts + 700 },
+  ]);
+  const m = mapRunToSession(
+    { taskId: `task_${ts}_amb`, agentType: 'opencode', taskTitle: '无编号任务' },
+    { home }
+  );
+  assert.equal(m.status, 'matched');
+  assert.equal(m.matchedBy, 'timestamp');
+  assert.equal(m.confidence, 'low');
+  assert.equal(m.warnings[0].code, 'ambiguous_candidates');
+});
+
+test('opencode：超出容差窗口 → unmatched（不误配到别的会话）', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  mkOpencodeDb(home, [
+    { id: 'ses_far', title: '[dim] 很久以后', timeCreated: ts + 600000, prompt: '完全无关的另一件事的 prompt 内容' },
+  ]);
+  const m = mapRunToSession(
+    { taskId: `task_${ts}_y`, agentType: 'opencode', taskTitle: '无关任务', prompt: '无关 prompt' },
+    { home }
+  );
+  assert.equal(m.status, 'unmatched');
+  assert.equal(m.ref, null);
+});
+
+test('opencode：库不存在时 → unmatched（不抛错）', () => {
+  const home = mkTmpHome();
+  const m = mapRunToSession({ taskId: 'task_1789559570749_z', agentType: 'opencode', taskTitle: 'x' }, { home });
+  assert.equal(m.status, 'unmatched');
+  assert.equal(m.ref, null);
 });
