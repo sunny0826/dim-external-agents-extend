@@ -102,7 +102,7 @@
   }
   label.scope input, label.follow input, label.global input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
   /* ===== 筛选（列表页）：一个按钮 + 弹出面板 ===== */
-  .filter { position: relative; flex: 0 0 auto; }
+  .filter { position: relative; flex: 0 0 auto; display: flex; align-items: center; }
   .filter-btn {
     display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px;
     font-size: 11.5px; color: var(--text-2); background: var(--surface);
@@ -130,7 +130,9 @@
   .filter-item input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
 
   /* ===== 开关（自动命名）：全局设置，只放列表页 ===== */
-  .switch-wrap { position: relative; flex: 0 0 auto; }
+  /* display:flex 是必须的：包裹层若是默认 block，里面的 inline-flex label 会按基线排版、
+     贴在该行顶部，整组比相邻控件高出约 2px（底部留下 strut 的下伸空间） */
+  .switch-wrap { position: relative; flex: 0 0 auto; display: flex; align-items: center; }
   .switch {
     display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-2);
     cursor: pointer; user-select: none; white-space: nowrap;

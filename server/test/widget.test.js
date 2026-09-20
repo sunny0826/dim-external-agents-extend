@@ -601,6 +601,22 @@ test('widget：自动命名开关与筛选都是「列表页控件」——详�
   );
 });
 
+test('widget：开关与筛选的包裹层必须是 flex 容器（否则整组会高出相邻控件约 2px）', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  // 包裹层若是默认 block，里面的 inline-flex 子元素按基线排版、贴在该行顶部，
+  // 底部留下 strut 的下伸空间，导致开关/筛选比标题、徽标、刷新按钮高出约 2px。
+  for (const [sel, child] of [
+    ['.switch-wrap', 'label.switch'],
+    ['.filter', 'button.filter-btn'],
+  ]) {
+    const rule = new RegExp(`\\${sel} \\{[^}]*\\}`);
+    const found = html.match(rule);
+    assert.ok(found, `应有 ${sel} 的样式规则`);
+    assert.match(found[0], /display: flex/, `${sel} 必须是 flex 容器，否则 ${child} 会贴顶、整组偏高`);
+    assert.match(found[0], /align-items: center/, `${sel} 需要 align-items: center 才能让 ${child} 垂直居中`);
+  }
+});
+
 test('widget：筛选集成到一个组件里（按钮 + 面板，三项条件）', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
   assert.match(html, /<button class="filter-btn" id="filterBtn"/, '应有筛选按钮');
