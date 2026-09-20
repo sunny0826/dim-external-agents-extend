@@ -1,6 +1,6 @@
 ---
 name: external-agents-extend
-description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex / grok / opencode / zcode）委托任务的执行日志，包括运行状态、工具调用序列、中间输出与失败原因。当用户问"某个外部 agent 任务跑到哪了 / 跑完了吗 / 完成了吗 / 结果如何 / 为什么失败 / 它做了什么"，或需要列出最近的外部 agent 委托任务、回放某次委托过程时使用本技能。
+description: 查看由 dim 后台拉起的外部 agent（kimi / cursor / codex / grok / opencode / pi / zcode）委托任务的执行日志，包括运行状态、工具调用序列、中间输出与失败原因。当用户问"某个外部 agent 任务跑到哪了 / 跑完了吗 / 完成了吗 / 结果如何 / 为什么失败 / 它做了什么"，或需要列出最近的外部 agent 委托任务、回放某次委托过程时使用本技能。
 ---
 
 # External Agents Extend（外部 Agent 日志）
@@ -53,6 +53,7 @@ dim-external-agents-extend tail task_1789620769595_mugj1d --interval 2000
 ## 注意事项
 
 - 日志内容包含外部 agent 的 prompt 与代码片段，属于敏感内容，按本机内容对待，不要外传；
-- `no_log` 常见原因是外部会话文件被清理；日志适配目前覆盖 kimi / cursor / codex / grok / opencode，其余 agent 类型（zcode）会返回 `unsupported`；
+- `no_log` 常见原因是外部会话文件被清理；日志适配目前覆盖 kimi / cursor / codex / grok / opencode / pi，其余 agent 类型（zcode）会返回 `unsupported`；
 - **opencode 的日志按 step 粒度推进**：它的库是状态式存储（part 行会被原地改写、文本流式写入），所以插件只在一个 step 结束后才输出该 step 的内容。任务进行中时日志看起来"慢一拍"是正常的，不是卡住；读到 `tool_in_flight` 警告即表示有工具调用尚未返回结果；
+- **pi 的日志按回合粒度推进**：它的会话是追加式 JSONL（每个 assistant 回合写一行），所以一个回合的内容要等该行落盘才可见——同样是"慢一拍"，但不会有重复或截断；
 - 若桌面端刚重启，等待约 20 秒再开新会话，否则新会话可能拿不到本插件的工具（已知启动竞态）。

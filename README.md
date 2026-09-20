@@ -161,11 +161,14 @@ dim-external-agents-extend restore                 # preview rolling a rename ba
 | Codex | ✅ | ✅ | Full (per event) |
 | Grok | ✅ | ✅ | Full (per event) |
 | OpenCode | ✅ | ✅ | Full (per event) |
+| Pi | ✅ | ✅ | Full (per event) |
 | ZCode | ✅ | Not yet | — |
 
-> The task list comes from dim's own task database, so every agent type can be listed; execution logs require per-agent session format adapters — Kimi / Cursor / Codex / Grok / OpenCode are done so far.
+> The task list comes from dim's own task database, so every agent type can be listed; execution logs require per-agent session format adapters — Kimi / Cursor / Codex / Grok / OpenCode / Pi are done so far.
 
 > OpenCode's log is read from `~/.local/share/opencode/opencode.db` (state-based: a part row is rewritten as it progresses, and text is streamed into it). The plugin therefore only emits a step's output once that step has finished (`step-finish` landed), trading a little latency for logs that are never duplicated or truncated mid-stream.
+
+> Pi's log is read from `~/.pi/agent/sessions/<cwd>/<timestamp>_<uuid>.jsonl` (append-only, like Kimi / Codex / Grok), so it uses a plain byte offset. Pi writes one line per assistant turn, so a turn's content shows up once that line lands — the same one-step-behind trade-off, for the same reason.
 
 ## FAQ
 

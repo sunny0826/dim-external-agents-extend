@@ -17,6 +17,7 @@ const LOADERS = {
   codex: () => require('./codex'),
   grok: () => require('./grok'),
   opencode: () => require('./opencode'),
+  pi: () => require('./pi'),
 };
 
 /** 读取会话事件（容错包装）。 */

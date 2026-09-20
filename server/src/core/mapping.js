@@ -608,6 +608,168 @@ function findOpencodeRef(run, { home, toleranceMs }) {
   };
 }
 
+/* ---------------------------------- pi ---------------------------------- */
+
+/**
+ * pi 会话：`~/.pi/agent/sessions/<cwd 编码>/<ISO 时间戳>_<uuid>.jsonl`。
+ * 目录名是 cwd 把 `/` 换成 `-` 后首尾各加一个 `-`；**文件名前缀就是会话创建时间**
+ * （UTC，如 `2026-09-20T02-54-16-805Z_…`），因此可以用纯字符串解析粗筛候选，
+ * 不必为了拿时间戳去逐个打开文件。
+ *
+ * dim 经 `pi-acp` 委托 pi，会话仍落在同一目录（`pi-acp/session-map.json` 的
+ * `sessionFile` 也指向这里），所以与用户手跑的会话格式、位置完全一致。
+ *
+ * 消歧顺序与 grok / opencode 一致：prompt 指纹 > Issue ID token > 时间差。
+ * prompt 取该会话**首条 user message 的文本**（dim 把任务 prompt 原样交给 CLI）。
+ */
+const PI_FILE_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/;
+
+/** 文件名前缀（UTC）→ 毫秒时间戳；不匹配返回 null。 */
+function piFileTimestamp(name) {
+  const m = PI_FILE_RE.exec(name);
+  if (!m) return null;
+  const ts = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}.${m[7]}Z`);
+  return Number.isFinite(ts) ? ts : null;
+}
+
+/** 文件名里的会话 uuid（`<时间戳>_<uuid>.jsonl`）。 */
+function piFileId(name) {
+  const base = name.endsWith('.jsonl') ? name.slice(0, -'.jsonl'.length) : name;
+  const i = base.indexOf('_');
+  return i >= 0 ? base.slice(i + 1) : base;
+}
+
+/** pi 的 content（数组 / 字符串）→ 文本；用于取首条 user 消息。 */
+function piTextOfContent(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return null;
+  const out = [];
+  for (const p of content) {
+    if (p && typeof p === 'object' && typeof p.text === 'string') out.push(p.text);
+  }
+  return out.length === 0 ? null : out.join('\n');
+}
+
+/** 惰性读取「首条 user message 文本」（prompt 指纹用）；每个文件至多读一次。 */
+function makePiPromptLoader() {
+  const cache = new Map();
+  return (file) => {
+    if (cache.has(file)) return cache.get(file);
+    let value = null;
+    let fd;
+    try {
+      fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(262144);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      for (const line of buf.subarray(0, n).toString('utf8').split('\n')) {
+        const t = line.trim();
+        if (t.length === 0 || t[0] !== '{') continue;
+        let rec;
+        try {
+          rec = JSON.parse(t);
+        } catch {
+          continue; // 可能是被截断的半行
+        }
+        if (!rec || rec.type !== 'message') continue;
+        const msg = rec.message;
+        if (!msg || msg.role !== 'user') continue;
+        const text = piTextOfContent(msg.content);
+        if (typeof text === 'string' && text.trim().length > 0) {
+          value = text;
+          break;
+        }
+      }
+    } catch {
+      value = null;
+    } finally {
+      if (fd !== undefined) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+    cache.set(file, value);
+    return value;
+  };
+}
+
+function findPiRef(run, { home, toleranceMs }) {
+  const ts = taskTimestampMs(run.taskId);
+  if (ts === null) return null;
+  const root = path.join(home, '.pi', 'agent', 'sessions');
+  let cwdDirs;
+  try {
+    cwdDirs = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const candidates = [];
+  for (const dirEntry of cwdDirs) {
+    if (!dirEntry.isDirectory()) continue;
+    const dir = path.join(root, dirEntry.name);
+    let files;
+    try {
+      files = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of files) {
+      if (!name.endsWith('.jsonl')) continue;
+      const createdAt = piFileTimestamp(name);
+      if (createdAt === null) continue;
+      const delta = Math.abs(createdAt - ts);
+      if (delta > toleranceMs) continue;
+      candidates.push({ file: path.join(dir, name), id: piFileId(name), delta });
+    }
+  }
+  if (candidates.length === 0) return null;
+
+  const matched = (c, matchedBy) => ({
+    status: 'matched',
+    agentType: 'pi',
+    ref: { adapter: 'pi', kind: 'file', path: c.file, id: c.id },
+    matchedBy,
+    confidence: 'high',
+    warnings: [],
+  });
+
+  // ① prompt 指纹：唯一命中即高置信度
+  const loadPrompt = makePiPromptLoader();
+  for (const c of candidates) c.promptHit = promptHits(run, loadPrompt(c.file));
+  const byPrompt = candidates.filter((c) => c.promptHit);
+  if (byPrompt.length === 1) return matched(byPrompt[0], 'timestamp+prompt');
+
+  // ② Issue ID token（如 GUO-63）：与会话首条 prompt 交叉比对
+  const tokens = extractTaskTokens(run);
+  if (tokens.length > 0) {
+    for (const c of candidates) {
+      const hay = c.promptHit === false ? '' : String(loadPrompt(c.file) || '');
+      c.tokenHits = tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+    }
+    const withHits = candidates.filter((c) => c.tokenHits > 0);
+    if (withHits.length > 0) {
+      withHits.sort((a, b) => b.tokenHits - a.tokenHits || a.delta - b.delta);
+      const top = withHits[0];
+      const tied = withHits.length > 1 && withHits[1].tokenHits === top.tokenHits;
+      if (!tied) return matched(top, 'timestamp+token');
+    }
+  }
+
+  // ③ 时间差（多候选且相近时保留歧义警告，不假装确定）
+  const { best, confidence, warnings } = pickCandidate(candidates);
+  return {
+    status: 'matched',
+    agentType: 'pi',
+    ref: { adapter: 'pi', kind: 'file', path: best.file, id: best.id },
+    matchedBy: 'timestamp',
+    confidence,
+    warnings,
+  };
+}
+
 /* ------------------------------ dispatch -------------------------------- */
 
 const FINDERS = {
@@ -616,6 +778,7 @@ const FINDERS = {
   codex: findCodexRef,
   grok: findGrokRef,
   opencode: findOpencodeRef,
+  pi: findPiRef,
 };
 
 /**

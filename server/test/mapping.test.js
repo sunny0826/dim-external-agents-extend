@@ -374,3 +374,101 @@ test('opencode：库不存在时 → unmatched（不抛错）', () => {
   assert.equal(m.status, 'unmatched');
   assert.equal(m.ref, null);
 });
+
+/* ---------------------------------- pi ----------------------------------- */
+
+/**
+ * 建一个 pi 会话文件：`~/.pi/agent/sessions/<cwd 编码>/<ISO>_<uuid>.jsonl`
+ * （目录名 = cwd 的 `/` 换成 `-` 后首尾各加 `-`；文件名前缀 = 创建时间 UTC）
+ */
+function mkPiSession(home, { id, createdAt, cwd = '/tmp/w', prompt = null }) {
+  const enc = '-' + cwd.replace(/\//g, '-') + '-';
+  const dir = path.join(home, '.pi', 'agent', 'sessions', enc);
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date(createdAt).toISOString().replace(/[:.]/g, '-');
+  const file = path.join(dir, `${stamp}_${id}.jsonl`);
+  const lines = [JSON.stringify({ type: 'session', version: 3, id, timestamp: new Date(createdAt).toISOString(), cwd })];
+  if (typeof prompt === 'string' && prompt.length > 0) {
+    lines.push(
+      JSON.stringify({
+        type: 'message',
+        id: 'u1',
+        parentId: null,
+        timestamp: new Date(createdAt + 100).toISOString(),
+        message: { role: 'user', content: [{ type: 'text', text: prompt }], timestamp: createdAt + 100 },
+      })
+    );
+  }
+  fs.writeFileSync(file, lines.join('\n') + '\n');
+  return file;
+}
+
+test('pi：按文件名里的创建时间戳定位会话', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  const file = mkPiSession(home, {
+    id: '01a0bcba-f84d-7734-8058-ea933850cd36',
+    createdAt: ts + 300,
+    prompt: '你是实现者。任务：实现 M2-05。',
+  });
+  const m = mapRunToSession({ taskId: `task_${ts}_k84sal`, agentType: 'pi', taskTitle: '实现 M2-05' }, { home });
+
+  assert.equal(m.status, 'matched');
+  assert.equal(m.ref.adapter, 'pi');
+  assert.equal(m.ref.kind, 'file');
+  assert.equal(m.ref.path, file);
+  assert.equal(m.ref.id, '01a0bcba-f84d-7734-8058-ea933850cd36');
+});
+
+test('pi：prompt 指纹区分并行委托的孪生会话', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  const implPrompt = '你负责实现 Linear Issue **GUO-68**（M2-04b 字幕列表 UI 与播放联动）。完整范围与验收判据在 Issue 描述里，请先读。';
+  const reviewPrompt = '你是独立审查者。审查 PR #53，产出结论。范围刻意切小；若某步耗时很长，先给出已得结论再继续。';
+  mkPiSession(home, { id: 'pi_impl', createdAt: ts + 850, prompt: implPrompt });
+  mkPiSession(home, { id: 'pi_review', createdAt: ts + 944, prompt: reviewPrompt });
+
+  const impl = mapRunToSession(
+    { taskId: `task_${ts}_ithu6u`, agentType: 'pi', taskTitle: '实现 M2-04b', prompt: implPrompt },
+    { home }
+  );
+  const review = mapRunToSession(
+    { taskId: `task_${ts}_a4zhb4`, agentType: 'pi', taskTitle: '审查 M2-04a PR #54', prompt: reviewPrompt },
+    { home }
+  );
+
+  assert.equal(impl.ref.id, 'pi_impl');
+  assert.equal(review.ref.id, 'pi_review');
+  assert.equal(impl.matchedBy, 'timestamp+prompt');
+  assert.equal(impl.confidence, 'high');
+  assert.deepEqual(impl.warnings, [], 'prompt 唯一命中时不应再报歧义');
+});
+
+test('pi：无指纹时按 delta，并保留歧义警告', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  mkPiSession(home, { id: 'pi_a', createdAt: ts + 500 });
+  mkPiSession(home, { id: 'pi_b', createdAt: ts + 700 });
+  const m = mapRunToSession({ taskId: `task_${ts}_amb`, agentType: 'pi', taskTitle: '无编号任务' }, { home });
+  assert.equal(m.status, 'matched');
+  assert.equal(m.matchedBy, 'timestamp');
+  assert.equal(m.confidence, 'low');
+  assert.equal(m.warnings[0].code, 'ambiguous_candidates');
+});
+
+test('pi：超出容差窗口 → unmatched；会话目录不存在也不抛错', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  mkPiSession(home, { id: 'pi_far', createdAt: ts + 600000, prompt: '完全无关的另一件事的 prompt 内容' });
+  const far = mapRunToSession(
+    { taskId: `task_${ts}_y`, agentType: 'pi', taskTitle: '无关任务', prompt: '无关 prompt' },
+    { home }
+  );
+  assert.equal(far.status, 'unmatched');
+  assert.equal(far.ref, null);
+
+  const empty = mkTmpHome();
+  const none = mapRunToSession({ taskId: `task_${ts}_z`, agentType: 'pi', taskTitle: 'x' }, { home: empty });
+  assert.equal(none.status, 'unmatched');
+  assert.equal(none.ref, null);
+});

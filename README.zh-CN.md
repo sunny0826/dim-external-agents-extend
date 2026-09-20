@@ -161,11 +161,14 @@ dim-external-agents-extend restore                 # 预览回滚改名
 | Codex | ✅ | ✅ | 完整（逐条） |
 | Grok | ✅ | ✅ | 完整（逐条） |
 | OpenCode | ✅ | ✅ | 完整（逐条） |
+| Pi | ✅ | ✅ | 完整（逐条） |
 | ZCode | ✅ | 暂未支持 | — |
 
-> 任务列表来自 dim 自身的任务库，因此所有 Agent 类型都能列出；执行日志需要按各 Agent 的会话格式单独适配，目前完成了 Kimi / Cursor / Codex / Grok / OpenCode 五种。
+> 任务列表来自 dim 自身的任务库，因此所有 Agent 类型都能列出；执行日志需要按各 Agent 的会话格式单独适配，目前完成了 Kimi / Cursor / Codex / Grok / OpenCode / Pi 六种。
 
 > OpenCode 的日志读自 `~/.local/share/opencode/opencode.db`（状态式存储：part 行会随执行进度被原地改写，文本是流式写入的）。因此插件只在一个 step 结束后（`step-finish` 落库）才输出该 step 的内容——用一点延迟换取日志不重复、不被截断。
+
+> Pi 的日志读自 `~/.pi/agent/sessions/<cwd>/<时间戳>_<uuid>.jsonl`（追加式，与 Kimi / Codex / Grok 同构），因此直接用字节偏移游标。Pi 每个 assistant 回合写一行，所以一个回合的内容要等该行落盘才可见——同样的「慢一拍」取舍，原因也一样。
 
 ## 常见问题
 
