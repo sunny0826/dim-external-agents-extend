@@ -132,7 +132,7 @@ test('codex：rollout 首行 session_meta 匹配', () => {
 /* ------------------------------- grok ---------------------------------- */
 
 /** 建一个 grok 会话目录：<home>/.grok/sessions/<enc-cwd>/<id>/{summary.json,updates.jsonl} */
-function mkGrokSession(home, id, createdAt, title, cwdEnc = '%2Ftmp%2Fw') {
+function mkGrokSession(home, id, createdAt, title, cwdEnc = '%2Ftmp%2Fw', userPrompt = null) {
   const dir = path.join(home, '.grok', 'sessions', cwdEnc, id);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
@@ -144,7 +144,17 @@ function mkGrokSession(home, id, createdAt, title, cwdEnc = '%2Ftmp%2Fw') {
       current_model_id: 'grok-4.6',
     })
   );
-  fs.writeFileSync(path.join(dir, 'updates.jsonl'), '');
+  const lines = [];
+  if (userPrompt !== null) {
+    lines.push(
+      JSON.stringify({
+        timestamp: Math.floor(Date.parse(createdAt) / 1000),
+        method: 'session/update',
+        params: { sessionId: id, update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: userPrompt } } },
+      })
+    );
+  }
+  fs.writeFileSync(path.join(dir, 'updates.jsonl'), lines.length > 0 ? lines.join('\n') + '\n' : '');
   return dir;
 }
 
@@ -173,6 +183,31 @@ test('grok：标题里的 Issue ID token 优先于 delta（并行任务）', () 
   assert.equal(m.ref.id, 'sess_b', '应选标题含 GUO-42 的会话，而不是 delta 更小的 sess_a');
   assert.equal(m.matchedBy, 'timestamp+token');
   assert.equal(m.confidence, 'high');
+});
+
+test('grok：prompt 指纹区分「同时创建」的孪生会话（delta 只差几十毫秒）', () => {
+  const home = mkTmpHome();
+  const ts = 1789559570749;
+  const implPrompt = '你负责实现 Linear Issue **GUO-68**（M2-04b 字幕列表 UI 与播放联动）。完整范围与验收判据在 Issue 描述里，请先读。';
+  const reviewPrompt = '你是独立审查者。审查 PR #53，产出结论。范围刻意切小；若某步耗时很长，先给出已得结论再继续。';
+  const enc = '%2Ftmp%2Fproj';
+  mkGrokSession(home, 'sess_impl', new Date(ts + 850).toISOString(), '[dim] 实现 M2-04b（改由 grok）', enc, implPrompt);
+  mkGrokSession(home, 'sess_review', new Date(ts + 944).toISOString(), '[dim] 实现 M2-04b（改由 grok）', enc, reviewPrompt);
+
+  const impl = mapRunToSession(
+    { taskId: `task_${ts}_ithu6u`, agentType: 'grok', taskTitle: '实现 M2-04b（改由 grok）', prompt: implPrompt },
+    { home }
+  );
+  const review = mapRunToSession(
+    { taskId: `task_${ts + 100}_a4zhb4`, agentType: 'grok', taskTitle: '审查 M2-06a PR #53（改由 grok）', prompt: reviewPrompt },
+    { home }
+  );
+  assert.equal(impl.ref.id, 'sess_impl');
+  assert.equal(review.ref.id, 'sess_review');
+  assert.equal(impl.matchedBy, 'timestamp+prompt');
+  assert.equal(review.matchedBy, 'timestamp+prompt');
+  assert.equal(impl.confidence, 'high');
+  assert.deepEqual(impl.warnings, [], 'prompt 唯一命中时不应再报歧义');
 });
 
 test('grok：超出容差窗口 → unmatched（不误配到别的会话）', () => {
