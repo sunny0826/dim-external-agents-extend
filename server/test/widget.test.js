@@ -502,6 +502,70 @@ test('widget：模型 chip —— 列表显示派发模型，日志头优先显�
   assert.equal(w.elements.lhModel.textContent, '默认');
 });
 
+test('widget：agentName —— 列表 badge 与日志详情页头部显示 dim 起的名字，无名字时不渲染', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      count: 2,
+      runs: [
+        { taskId: 'task_n1', agentType: 'codex', agentName: '林澈', status: 'running', taskTitle: '波形合并', startedAt: '2026-09-20T06:14:59.000Z' },
+        { taskId: 'task_n2', agentType: 'kimi', status: 'completed', taskTitle: '没有名字的任务', startedAt: '2026-09-20T05:58:20.000Z' },
+      ],
+    })
+  );
+  await settle();
+
+  const nameChips = collectByTag(w.elements.runs, 'span').filter((el) => el.className === 'badge-name');
+  assert.equal(nameChips.length, 1, '只有带 agentName 的任务才渲染名字');
+  assert.equal(nameChips[0].textContent, '林澈');
+  assert.match(nameChips[0].title, /林澈/, '名字应带 tooltip 说明来源');
+
+  // 点击带名字的任务 → 日志头显示名字
+  clickFirstRun(w);
+  await settle();
+  const readCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'read_agent_run');
+  w.dispatch(
+    toolResult(readCall.id, {
+      status: 'ok',
+      taskId: 'task_n1',
+      cursor: '0',
+      nextCursor: null,
+      total: 0,
+      events: [],
+      meta: { degraded: false, warnings: [] },
+      session: null,
+    })
+  );
+  await settle();
+  assert.equal(w.elements.lhName.textContent, '林澈');
+  assert.ok(!w.elements.lhName.classList.contains('hidden'), '有名字时不应隐藏');
+
+  // 切到无名字的任务 → 日志头整块隐藏（不占 flex gap）
+  const cardItems = w.elements.runs.children.filter((c) => c.className.indexOf('run') >= 0);
+  cardItems[1]._ls.click();
+  await settle();
+  const readCall2 = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'read_agent_run').pop();
+  w.dispatch(
+    toolResult(readCall2.id, {
+      status: 'ok',
+      taskId: 'task_n2',
+      cursor: '0',
+      nextCursor: null,
+      total: 0,
+      events: [],
+      meta: { degraded: false, warnings: [] },
+      session: null,
+    })
+  );
+  await settle();
+  assert.equal(w.elements.lhName.textContent, '');
+  assert.ok(w.elements.lhName.classList.contains('hidden'), '无名字时应隐藏');
+});
+
 /* ===== 自动命名开关（默认关闭）===== */
 
 test('widget：fullscreen 启动会读设置，并把「自动命名」开关反映为真实状态', async () => {
