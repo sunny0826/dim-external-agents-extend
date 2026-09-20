@@ -804,6 +804,44 @@ test('widget：日志详情页头部显示对应 Agent 的 logo（无图标时�
   assert.equal(w.elements.lhLogo.hidden, true);
 });
 
+test('widget：AGENT_LOGOS 覆盖全部 7 个已知外部 agent（每个值都是 data:image/）', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  const m = html.match(/var AGENT_LOGOS = \{([\s\S]*?)\n    \};/);
+  assert.ok(m, 'log.html 中应有 AGENT_LOGOS 表');
+  const logos = {};
+  const re = /\b([a-z0-9_]+):\s*"(data:image\/[^"]+)"/g;
+  let hit;
+  while ((hit = re.exec(m[1])) !== null) logos[hit[1]] = hit[2];
+
+  const expected = ['codex', 'cursor', 'grok', 'kimi', 'opencode', 'pi', 'zcode'];
+  assert.deepEqual(Object.keys(logos).sort(), expected.slice().sort(), '应恰好覆盖全部已知外部 agent');
+  for (const key of expected) {
+    assert.ok(logos[key], `AGENT_LOGOS 缺少 ${key}`);
+    assert.match(logos[key], /^data:image\//, `${key} 的 logo 应为 data:image URI`);
+  }
+});
+
+test('widget：pi 任务在日志页头部显示官方 SVG logo', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      count: 1,
+      runs: [{ taskId: 'task_pi', agentType: 'pi', status: 'running', taskTitle: 'Pi 任务' }],
+    })
+  );
+  await settle();
+
+  clickFirstRun(w);
+  await settle();
+  assert.equal(w.elements.lhLogo.hidden, false);
+  assert.match(String(w.elements.lhLogo.src), /^data:image\//);
+  assert.match(w.elements.lhLogo.alt, /pi/);
+});
+
 /* ===== 轨迹折叠（默认折叠为一行统计摘要，Agent 正文保持可见） ===== */
 
 const tsAt = (n) => '2026-09-20T00:00:0' + n + '.000Z';

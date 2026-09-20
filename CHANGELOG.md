@@ -17,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **A task's log folds to one line by default** — the log detail page now shows a single trajectory summary (`思考3轮 · 读1次文件、改2次文件、执行2次命令、搜索1次`) instead of one row per thinking step and tool call. Clicking the row expands the full trail: thinking lines, tool calls with their arguments, tool results, and grouped system events. The agent's own text output stays visible at full width, and the stream is split at each text output — a task that narrates between tool batches gets one summary row per batch. A failing call turns the summary red while still folded, and an expanded row stays expanded across the 2s poll rebuild. The fold replaces the previous "工具调用" group (which only appeared for ≥2 consecutive calls) and now covers every non-text event, single call included
 
+### Fixed
+
+- **Pi tasks now show a logo icon** — pi previously rendered as a bare text label in the task list badge and the log-page header, because it was the only external agent missing from the icon table. A scan of every `externalAgentType` seen in the task database confirmed the known set is exactly 7 — codex / cursor / grok / kimi / opencode / pi / zcode — of which pi was the sole gap: it is a CLI with no local `.app` to extract an `icon.icns` from, so it now uses pi's official SVG (inlined as a `data:image/svg+xml` URI), matching the other six icons that are PNGs extracted from the local apps. The official SVG's `viewBox` was tightened (from `0 0 800 800` to `145 145 510 510`, about 3% margin around the graphic) so pi doesn't render noticeably smaller than the other six icons inside the 12px badge — the vendor file carries a lot of built-in whitespace (graphic bounding box 7×7 / 18% fill vs the PNG icons' 10×10 / 61–67%)
+
 ## [0.1.0] - 2026-09-19
 
 External-agent session names are now normalized and can be written back, so both the plugin and the agents' own pickers become readable.
