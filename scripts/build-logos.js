@@ -10,6 +10,14 @@
  * 用法：node scripts/build-logos.js
  */
 
+/* pi 是 CLI（@earendil-works/pi-coding-agent），本机没有 .app/icns 可提取；
+ * 用官方 SVG（来源 https://pi.dev/logo-auto.svg，2026-09-20 抓取，338 字节）的 data URI，
+ * 与 log.html 中 AGENT_LOGOS 的 pi 值保持一致。
+ * viewBox 已收紧到图形包围盒 + 约 3% 边距（145 145 510 510），去掉厂商 SVG 自带的
+ * 大留白，使其在 12px 的 badge 内与其余 6 个 logo 视觉大小一致；path 数据未改。 */
+const PI_LOGO_SVG_URI =
+  'data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjE0NSAxNDUgNTEwIDUxMCI+CiAgPHBhdGggZmlsbD0iI0YwOTA4MiIgZD0iTTE2NS4yOSAxNjUuMjlINTE3LjM2VjQwMEg0MDBWMjgyLjY1SDE2NS4yOVoiLz4KICA8cGF0aCBmaWxsPSIjNEQ5QUJGIiBkPSJNMTY1LjI5IDI4Mi42NUgyODIuNjVWNDAwSDQwMFY1MTcuMzZIMjgyLjY1VjYzNC43MkgxNjUuMjlaIi8+CiAgPHBhdGggZmlsbD0iI0YxQkU1OCIgZD0iTTUxNy4zNiA0MDBINjM0LjcyVjYzNC43Mkg1MTcuMzZaIi8+Cjwvc3ZnPgo=';
+
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -38,6 +46,11 @@ for (const [name, icns] of APPS) {
   execFileSync('sips', ['-s', 'format', 'png', icns, '--out', png, '-Z', '44'], { stdio: 'ignore' });
   entries.push(`      ${name}: "data:image/png;base64,${fs.readFileSync(png).toString('base64')}",`);
 }
+/* 插到 opencode 之后、zcode 之前，与 log.html 的 AGENT_LOGOS 顺序保持一致 */
+const zcodeIdx = entries.findIndex((e) => e.startsWith('      zcode:'));
+const piEntry = `      pi: "${PI_LOGO_SVG_URI}",`;
+if (zcodeIdx >= 0) entries.splice(zcodeIdx, 0, piEntry);
+else entries.push(piEntry);
 
 let html = fs.readFileSync(WIDGET, 'utf8');
 if (!html.includes(PLACEHOLDER)) {
