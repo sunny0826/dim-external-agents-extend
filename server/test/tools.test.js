@@ -373,3 +373,45 @@ test('list_agent_runs：显式 sessionId 优先，且本会话有任务时不做
     else process.env.EA_EXT_ACTIVE_SESSION = saved;
   }
 });
+
+test('list_agent_runs：回退只在「别处确实有在跑的任务」时发生，不把历史失败倒出来', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ea-fallback-scope-'));
+  const dbPath = path.join(dir, 'dimcode.sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TABLE background_tasks (
+    taskId TEXT PRIMARY KEY, sessionId TEXT, sourceRunId TEXT, sourceToolCallId TEXT,
+    toolName TEXT, label TEXT, status TEXT, wakePolicy TEXT, outputPath TEXT,
+    metadata TEXT, startedAt TEXT, completedAt TEXT, completion TEXT, notificationDeliveredAt TEXT
+  )`);
+  const ins = db.prepare(
+    'INSERT INTO background_tasks (taskId, sessionId, toolName, status, metadata, startedAt) VALUES (?,?,?,?,?,?)'
+  );
+  ins.run('task_1789820000000_old000', 'sess_other', 'agent', 'failed', JSON.stringify({ externalAgentType: 'kimi', taskTitle: '历史失败任务' }), '2026-09-16T00:00:00.000Z');
+  db.close();
+
+  const saved = process.env.EA_EXT_ACTIVE_SESSION;
+  process.env.EA_EXT_ACTIVE_SESSION = writeActiveSessionFile({ sess_mine: Date.now() });
+  try {
+    /* 别处只有历史失败（终态）→ 不回退，保持本会话空态 */
+    const quiet = JSON.parse(listAgentRuns({ limit: 10, includeFinished: false }, { dbPath }).text);
+    assert.equal(quiet.status, 'empty');
+    assert.equal(quiet.scope, 'session', '不应因为历史失败就回退');
+    assert.equal(quiet.scopeFallback, undefined);
+
+    /* 别处有正在运行的任务 → 回退，并说明有几个在跑 */
+    const db2 = new DatabaseSync(dbPath);
+    db2
+      .prepare('INSERT INTO background_tasks (taskId, sessionId, toolName, status, metadata, startedAt) VALUES (?,?,?,?,?,?)')
+      .run('task_1789829000000_run000', 'sess_other', 'agent', 'running', JSON.stringify({ externalAgentType: 'kimi', taskTitle: '正在跑的任务' }), '2026-09-19T13:29:27.432Z');
+    db2.close();
+
+    const busy = JSON.parse(listAgentRuns({ limit: 10, includeFinished: false }, { dbPath }).text);
+    assert.equal(busy.scope, 'all');
+    assert.equal(busy.scopeFallback.activeCount, 1);
+    assert.match(busy.scopeFallback.reason, /有 1 个正在运行/);
+    assert.ok(busy.runs.some((r) => r.taskId === 'task_1789829000000_run000'));
+  } finally {
+    if (saved === undefined) delete process.env.EA_EXT_ACTIVE_SESSION;
+    else process.env.EA_EXT_ACTIVE_SESSION = saved;
+  }
+});

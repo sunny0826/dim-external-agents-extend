@@ -37,6 +37,9 @@ const MAX_LIST_LIMIT = 200;
 const DEFAULT_PAGE_LIMIT = 100;
 const MAX_PAGE_LIMIT = 500;
 
+/** 终态：completed / cancelled / failed 都算「已结束」，不构成「别处还有在跑的任务」。 */
+const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'failed']);
+
 function clampLimit(value, fallback, max) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
@@ -135,12 +138,16 @@ function listAgentRuns(args = {}, deps = {}) {
     let scopeFallback = null;
     if (activeSession !== null && runs.length === 0) {
       const all = query(null);
-      if (all.length > 0) {
+      /* 回退的本意是「别的会话正在跑的任务别被藏起来」，不是把历史倒出来：
+         只有别处确实还有活动（非终态）任务时才回退，否则保持本会话空态。 */
+      const activeElsewhere = all.filter((r) => !TERMINAL_STATUSES.has(r.status));
+      if (activeElsewhere.length > 0) {
         runs = all;
         scope = 'all';
         scopeFallback = {
           from: activeSession,
-          reason: '本会话没有外部 Agent 任务，已回退为全部会话（含其它 dim 会话）',
+          activeCount: activeElsewhere.length,
+          reason: `本会话没有外部 Agent 任务，但其它 dim 会话有 ${activeElsewhere.length} 个正在运行，已回退为全部会话`,
         };
       }
     }
