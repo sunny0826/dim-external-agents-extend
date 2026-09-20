@@ -101,6 +101,66 @@
     font-size: 11.5px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap;
   }
   label.scope input, label.follow input, label.global input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
+  /* ===== 筛选（列表页）：一个按钮 + 弹出面板 ===== */
+  .filter { position: relative; flex: 0 0 auto; }
+  .filter-btn {
+    display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px;
+    font-size: 11.5px; color: var(--text-2); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  }
+  .filter-btn:hover { color: var(--text-1); border-color: var(--border-strong); }
+  .filter-btn svg { width: 11px; height: 11px; flex: 0 0 auto; }
+  .filter-badge {
+    min-width: 14px; padding: 0 4px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    line-height: 14px; text-align: center; color: var(--surface); background: var(--sel); border-radius: 7px;
+  }
+  .filter-badge[hidden] { display: none; }
+  .filter-menu {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+    display: flex; flex-direction: column; gap: 2px; min-width: 152px; padding: 5px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  }
+  .filter-menu[hidden] { display: none; }
+  .filter-item {
+    display: flex; align-items: center; gap: 7px; padding: 5px 7px;
+    font-size: 11.5px; color: var(--text-2); border-radius: 5px; cursor: pointer; white-space: nowrap;
+  }
+  .filter-item:hover { background: var(--hover); color: var(--text-1); }
+  .filter-item input { width: 13px; height: 13px; margin: 0; accent-color: var(--sel); cursor: pointer; }
+
+  /* ===== 开关（自动命名）：全局设置，只放列表页 ===== */
+  .switch-wrap { position: relative; flex: 0 0 auto; }
+  .switch {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-2);
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  .switch input { position: absolute; width: 0; height: 0; opacity: 0; }
+  .switch-track {
+    position: relative; flex: 0 0 auto; width: 26px; height: 15px; border-radius: 8px;
+    background: var(--border-strong); transition: background 0.15s var(--ease);
+  }
+  .switch-knob {
+    position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s var(--ease);
+  }
+  .switch input:checked + .switch-track { background: var(--sel); }
+  .switch input:checked + .switch-track .switch-knob { transform: translateX(11px); }
+  .switch input:focus-visible + .switch-track { outline: 2px solid var(--sel); outline-offset: 2px; }
+  .switch input:disabled + .switch-track { opacity: 0.5; }
+  .tip {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: 272px;
+    padding: 8px 10px; font-size: 11px; line-height: 1.55; color: var(--text-2);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    opacity: 0; visibility: hidden; transition: opacity 0.12s var(--ease);
+  }
+  .switch-wrap:hover .tip, .switch-wrap:focus-within .tip { opacity: 1; visibility: visible; }
+  /* 筛选与开关都服务列表页：日志详情页与 inline 卡片都不显示 */
+  body.view-log .filter, body.view-log .switch-wrap { display: none; }
+  body.inline-card .filter, body.inline-card .switch-wrap { display: none; }
+
   .scope-badge {
     flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
     letter-spacing: 0.07em; text-transform: uppercase; white-space: nowrap;
@@ -182,6 +242,8 @@
     padding: 12px 20px 8px; flex: 0 0 auto; min-width: 0;
   }
   body.view-log .log-head { display: flex; }
+  .log-head .lh-logo { width: 16px; height: 16px; border-radius: 4px; flex: 0 0 auto; }
+  .log-head .lh-logo[hidden] { display: none; }
   .log-head .lh-agent {
     flex: 0 0 auto; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
     letter-spacing: 0.07em; text-transform: uppercase;
@@ -357,7 +419,7 @@
   }
   body.inline-card header { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--surface); border-radius: 12px 12px 0 0; }
   body.inline-card header h1 { font-size: 12.5px; }
-  body.inline-card label.follow, body.inline-card label.global { display: none; }
+  body.inline-card label.follow { display: none; }
   body.inline-card main { display: block; }
   body.inline-card .content-col { display: none; }
   body.inline-card aside {
@@ -376,8 +438,6 @@
   body.view-log aside { display: none; }
   body.view-list .content-col { display: none; }
   body.view-list label.follow { display: none; }
-  /* 「自动命名」是全局设置（影响之后所有委托），只放在列表页；日志详情页与 inline 卡片都不显示 */
-  body.view-log label.global { display: none; }
 
   /* ===== 动画 ===== */
   @keyframes rise { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
@@ -407,10 +467,26 @@
     <span class="status-dot" id="dot" title=""></span>
     <span id="statusText"></span>
     <span class="spacer"></span>
-    <label class="scope"><input type="checkbox" id="allRuns"> 全部会话</label>
-    <label class="scope"><input type="checkbox" id="showFinished"> 显示已结束</label>
+    <div class="filter" id="filterWrap">
+      <button class="filter-btn" id="filterBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="filterMenu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        筛选<span class="filter-badge" id="filterBadge" hidden></span>
+      </button>
+      <div class="filter-menu" id="filterMenu" role="menu" hidden>
+        <label class="filter-item"><input type="checkbox" id="allRuns"> 全部会话</label>
+        <label class="filter-item"><input type="checkbox" id="showFinished"> 显示已结束</label>
+        <label class="filter-item"><input type="checkbox" id="showFailed"> 显示失败</label>
+      </div>
+    </div>
     <label class="follow"><input type="checkbox" id="follow" checked> 跟随</label>
-    <label class="global" id="autoNameWrap" title="开启后，dim 委托外部 Agent 时会自动把该会话的泛化标题改成统一名（[dim] …）；默认关闭"><input type="checkbox" id="autoName"> 自动命名</label>
+    <div class="switch-wrap" id="autoNameWrap">
+      <label class="switch" for="autoName">
+        <input type="checkbox" id="autoName" role="switch" aria-describedby="autoNameTip">
+        <span class="switch-track"><span class="switch-knob"></span></span>
+        <span>自动命名</span>
+      </label>
+      <span class="tip" id="autoNameTip" role="tooltip"></span>
+    </div>
     <button class="refresh" id="refresh" title="重新加载">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       刷新
@@ -420,6 +496,7 @@
     <aside id="runs"><div class="placeholder">正在加载任务…</div></aside>
     <div class="content-col">
       <div class="log-head" id="logHead">
+        <img class="lh-logo" id="lhLogo" alt="" hidden>
         <span class="lh-agent" id="lhAgent"></span>
         <span class="lh-model hidden" id="lhModel"></span>
         <span class="lh-title" id="lhTitle"></span>
@@ -517,6 +594,13 @@
     var elAllRuns = document.getElementById('allRuns');
     var elScopeBadge = document.getElementById('scopeBadge');
     var elShowFinished = document.getElementById('showFinished');
+    var elShowFailed = document.getElementById('showFailed');
+    var elFilterWrap = document.getElementById('filterWrap');
+    var elFilterBtn = document.getElementById('filterBtn');
+    var elFilterMenu = document.getElementById('filterMenu');
+    var elFilterBadge = document.getElementById('filterBadge');
+    var elLhLogo = document.getElementById('lhLogo');
+    var elAutoNameTip = document.getElementById('autoNameTip');
     var elLhAgent = document.getElementById('lhAgent');
     var elLhModel = document.getElementById('lhModel');
     var elLhTitle = document.getElementById('lhTitle');
@@ -543,6 +627,8 @@
         if (state.runs[i].taskId === state.selected) { run = state.runs[i]; break; }
       }
       if (!run) {
+        elLhLogo.hidden = true;
+        elLhLogo.removeAttribute('src');
         elLhAgent.textContent = '';
         elLhModel.textContent = '';
         elLhModel.title = '';
@@ -552,6 +638,16 @@
         elLhState.textContent = '';
         elLhTime.textContent = '';
         return;
+      }
+      /* 对应 Agent 的 logo（列表页同一套图标；没有图标时只留文字标签） */
+      var logo = agentLogo(run.agentType);
+      if (logo) {
+        elLhLogo.src = logo;
+        elLhLogo.alt = (run.agentType || 'agent') + ' logo';
+        elLhLogo.hidden = false;
+      } else {
+        elLhLogo.hidden = true;
+        elLhLogo.removeAttribute('src');
       }
       elLhAgent.textContent = run.agentType || 'agent';
       /* 模型：优先会话实际使用（read_agent_run.session.model），回退 dim 派发时选择。 */
@@ -615,8 +711,8 @@
         ph.className = 'placeholder';
         ph.textContent =
           state.scope === 'all'
-            ? '没有找到委托任务（可勾选「显示已结束」查看历史）'
-            : '本会话暂无外部 Agent（可勾选「全部会话」或「显示已结束」查看历史）';
+            ? '没有找到委托任务（可在「筛选」里勾选「显示已结束」「显示失败」查看历史）'
+            : '本会话暂无外部 Agent（可在「筛选」里勾选「全部会话」或「显示已结束」查看历史）';
         elRuns.appendChild(ph);
         return;
       }
@@ -687,6 +783,7 @@
         limit: 50,
         scope: state.scope,
         includeFinished: elShowFinished.checked,
+        includeFailed: elShowFailed.checked,
       }).then(function (data) {
         state.runs = (data && data.runs) || [];
         // 服务端在无法确定活跃会话、或本会话没有任务时会回退为 all，这里保持两边状态一致
@@ -1550,13 +1647,59 @@
       applyView('list');
       loadRuns(true); // 返回列表时刷新（状态可能有变化）
     });
-    elAllRuns.addEventListener('change', function () {
+    /* ===== 筛选组件（列表页）：一个按钮 + 弹出面板，三项条件 ---------- */
+    function closeFilterMenu() {
+      elFilterMenu.hidden = true;
+      elFilterBtn.setAttribute('aria-expanded', 'false');
+    }
+    function openFilterMenu() {
+      elFilterMenu.hidden = false;
+      elFilterBtn.setAttribute('aria-expanded', 'true');
+    }
+    /** 角标只数「非默认」的条件：全部会话 / 显示已结束 / 显示失败。 */
+    function updateFilterBadge() {
+      var n = 0;
+      if (elAllRuns.checked) n += 1;
+      if (elShowFinished.checked) n += 1;
+      if (elShowFailed.checked) n += 1;
+      elFilterBadge.textContent = String(n);
+      elFilterBadge.hidden = n === 0;
+      elFilterBtn.title =
+        n === 0
+          ? '筛选：当前为默认（本会话 · 隐藏已结束 · 隐藏失败）'
+          : '筛选：已启用 ' + n + ' 个条件';
+    }
+    function onFilterChange() {
       state.scope = elAllRuns.checked ? 'all' : 'session';
+      updateFilterBadge();
       loadRuns(true);
+    }
+    elFilterBtn.addEventListener('click', function (ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      if (elFilterMenu.hidden) openFilterMenu(); else closeFilterMenu();
     });
-    elShowFinished.addEventListener('change', function () {
-      loadRuns(true); // 勾选后带上 includeFinished=true 重新拉取
+    [elAllRuns, elShowFinished, elShowFailed].forEach(function (el) {
+      el.addEventListener('change', onFilterChange);
     });
+    /* 点面板外 / 按 Esc 关闭（宿主里没有 document 事件时静默跳过） */
+    if (typeof document.addEventListener === 'function') {
+      document.addEventListener('click', function (ev) {
+        if (elFilterMenu.hidden) return;
+        var t = ev && ev.target;
+        if (t === elFilterWrap || (t && elFilterWrap.contains && elFilterWrap.contains(t))) return;
+        closeFilterMenu();
+      });
+      document.addEventListener('keydown', function (ev) {
+        if (ev && ev.key === 'Escape') closeFilterMenu();
+      });
+    }
+    /* 默认：本会话 · 隐藏已结束 · 隐藏失败（显式声明，避免只依赖 HTML 属性） */
+    elAllRuns.checked = false;
+    elShowFinished.checked = false;
+    elShowFailed.checked = false;
+    state.scope = 'session';
+    closeFilterMenu(); // 初始收起（HTML 里也有 hidden，这里保证状态一致）
+    updateFilterBadge();
     elRefresh.addEventListener('click', function () {
       loadRuns(true).then(function () {
         if (state.selected) {
@@ -1570,17 +1713,20 @@
     });
 
     /* ===== 自动命名开关（默认关闭）：读设置 → 反映到开关；改动 → 写配置 ===== */
-    var AUTO_NAME_TITLE =
-      '开启后，dim 委托外部 Agent 时会自动把该会话的泛化标题改成统一名（[dim] …）；' +
-      '只动 dim 委托、只动泛化标题、写前备份，且只回溯 2 小时。默认关闭。';
+    /* 说明文案按事实写：hook 是每次事件新起进程并即时读取配置，所以开关立即生效，不需要重启；
+       它只影响「之后的委托」，不会回头改历史（历史用 autoname 回填）。 */
+    var AUTO_NAME_TIP =
+      '开启后，dim 之后每次委托外部 Agent，会自动把该会话的泛化标题统一成 [dim] 任务标题' +
+      '（只动 dim 委托、只动泛化标题、写前备份）。只影响新委托、不回溯历史；' +
+      '设置立即生效，无需重启 DimAgent。';
 
     function applyAutoNameState(autoName) {
       var enabled = Boolean(autoName && autoName.enabled);
-      elAutoName.checked = enabled;
       var source = autoName && autoName.source;
-      elAutoNameWrap.title =
-        AUTO_NAME_TITLE +
-        (enabled ? '（当前：已开启' + (source === 'env' ? '，由环境变量决定' : '') + '）' : '（当前：已关闭）');
+      elAutoName.checked = enabled;
+      var state = enabled ? '当前：已开启' + (source === 'env' ? '（由环境变量决定）' : '') : '当前：已关闭';
+      elAutoNameTip.textContent = AUTO_NAME_TIP + '（' + state + '）';
+      elAutoNameWrap.title = AUTO_NAME_TIP + '（' + state + '）';
     }
 
     function loadSettings() {

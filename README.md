@@ -79,10 +79,10 @@ You can also pick `/external-agents-extend` from the skills button or slash menu
 
 ![Log page](docs/images/panel-log.png)
 
-- The header shows task context: agent, model, title, status, and time range
+- The header shows task context: the agent's logo, agent, model, title, status, and time range
 - The event stream is grouped by type: agent text (Markdown rendered, including tables), tool calls (a collapsible "tool calls" group — expand to see every step), and reasoning/system events (collapsible)
 - With "Follow" enabled, it auto-scrolls to the latest; running tasks append incrementally every 2 seconds
-- Check "All sessions" for historical tasks, and "Show finished" for completed / cancelled tasks
+- The list page keeps its filters in one **筛选** button (a popover with three conditions: all sessions / show finished / show failed); the default view is this session, hiding finished *and* failed work. Filters and the global automatic-naming switch are list-page controls only — a task's log page shows neither
 
 ### Session names
 

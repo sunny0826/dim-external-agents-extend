@@ -22,6 +22,7 @@ function makeEl(tag) {
     title: '',
     style: {},
     checked: true,
+    hidden: false,
     scrollHeight: 100,
     scrollTop: 0,
     clientHeight: 100,
@@ -55,6 +56,13 @@ function makeEl(tag) {
     },
     setAttribute(k, v) {
       this[k] = v;
+    },
+    removeAttribute(k) {
+      delete this[k];
+    },
+    contains(el) {
+      if (el === this) return true;
+      return (this.children || []).some((c) => c === el || (c.contains && c.contains(el)));
     },
   };
 }
@@ -577,17 +585,96 @@ test('widget：服务端回退为全部会话时，勾选「全部会话」并�
   assert.match(collectText(w.elements.runs), /实现 GUO-109/, '应显示别的会话里运行中的任务');
 });
 
-test('widget：自动命名开关属于「列表页的全局设置」——用 label.global，不被 follow 规则藏进详情页', () => {
+test('widget：自动命名开关与筛选都是「列表页控件」——详情页与 inline 卡片都不显示', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
-  assert.match(html, /<label class="global" id="autoNameWrap"/, '开关应使用 label.global');
-  assert.ok(
-    !/<label class="follow" id="autoNameWrap"/.test(html),
-    '不能复用 follow 类：body.view-list label.follow{display:none} 会把它藏到日志详情页'
-  );
-  assert.match(html, /body\.view-log label\.global \{ display: none; \}/, '日志详情页应隐藏全局开关');
+  assert.match(html, /<div class="switch-wrap" id="autoNameWrap">/, '开关应是独立容器，不再复用 follow/scope 类');
+  assert.match(html, /<span class="tip" id="autoNameTip" role="tooltip"><\/span>/, '开关要有 hover 提示容器');
   assert.match(
     html,
-    /body\.inline-card label\.follow, body\.inline-card label\.global \{ display: none; \}/,
-    'inline 卡片应隐藏全局开关'
+    /body\.view-log \.filter, body\.view-log \.switch-wrap \{ display: none; \}/,
+    '日志详情页应隐藏筛选与开关'
   );
+  assert.match(
+    html,
+    /body\.inline-card \.filter, body\.inline-card \.switch-wrap \{ display: none; \}/,
+    'inline 卡片应隐藏筛选与开关'
+  );
+});
+
+test('widget：筛选集成到一个组件里（按钮 + 面板，三项条件）', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'widget', 'log.html'), 'utf8');
+  assert.match(html, /<button class="filter-btn" id="filterBtn"/, '应有筛选按钮');
+  assert.match(html, /<div class="filter-menu" id="filterMenu" role="menu" hidden>/, '菜单默认收起');
+  for (const id of ['allRuns', 'showFinished', 'showFailed']) {
+    assert.ok(html.includes(`id="${id}"`), `菜单里应有 ${id}`);
+  }
+  assert.ok(!/<label class="scope">/.test(html), '旧的散落 checkbox 不应残留');
+});
+
+/* ===== 筛选组件交互 / includeFailed / 详情页 logo ===== */
+
+test('widget：筛选按钮开合、角标计数、并驱动 includeFailed 参数', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+
+  /* 默认：菜单收起、无角标 */
+  assert.equal(w.elements.filterMenu.hidden, true);
+  assert.equal(w.elements.filterBadge.hidden, true);
+  const first = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.equal(first.params.arguments.includeFailed, false, '默认不显示失败');
+  assert.equal(first.params.arguments.includeFinished, false, '默认不显示已结束');
+
+  /* 打开菜单 */
+  w.elements.filterBtn._ls.click();
+  assert.equal(w.elements.filterMenu.hidden, false);
+  assert.equal(w.elements.filterBtn['aria-expanded'], 'true');
+
+  /* 勾选「显示失败」→ 角标 1、重新拉取且 includeFailed=true */
+  w.elements.showFailed.checked = true;
+  w.elements.showFailed._ls.change();
+  await settle();
+  assert.equal(w.elements.filterBadge.textContent, '1');
+  assert.equal(w.elements.filterBadge.hidden, false);
+  const calls = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.equal(calls[calls.length - 1].params.arguments.includeFailed, true);
+
+  /* 再勾「全部会话」→ 角标 2、scope=all */
+  w.elements.allRuns.checked = true;
+  w.elements.allRuns._ls.change();
+  await settle();
+  assert.equal(w.elements.filterBadge.textContent, '2');
+  const calls2 = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  assert.equal(calls2[calls2.length - 1].params.arguments.scope, 'all');
+});
+
+test('widget：日志详情页头部显示对应 Agent 的 logo（无图标时隐藏）', async () => {
+  const w = bootWidget();
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      count: 2,
+      runs: [
+        { taskId: 'task_kimi', agentType: 'kimi', status: 'running', taskTitle: 'Kimi 任务' },
+        { taskId: 'task_unknown', agentType: 'unknownagent', status: 'running', taskTitle: '未知 agent' },
+      ],
+    })
+  );
+  await settle();
+
+  /* 选中 kimi → logo 出现且是内联图标 */
+  clickFirstRun(w);
+  await settle();
+  assert.equal(w.elements.lhLogo.hidden, false);
+  assert.match(String(w.elements.lhLogo.src), /^data:image\//);
+  assert.match(w.elements.lhLogo.alt, /kimi/);
+
+  /* 选中未知 agent → logo 隐藏 */
+  const items = w.elements.runs.children.filter((c) => c.className.indexOf('run') >= 0);
+  items[1]._ls.click();
+  await settle();
+  assert.equal(w.elements.lhLogo.hidden, true);
 });

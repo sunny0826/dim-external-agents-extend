@@ -112,8 +112,9 @@ function selectClause(db) {
 
 /**
  * 列出 agent 任务（toolName='agent'），最新在前。
- * @param {{home?: string, dbPath?: string, limit?: number, agentType?: string, status?: string, sessionId?: string, includeFinished?: boolean}} [options]
- *   includeFinished=false 时在 SQL 层排除已完成/已取消（默认 true，保持低层中性）。
+ * @param {{home?: string, dbPath?: string, limit?: number, agentType?: string, status?: string, sessionId?: string, includeFinished?: boolean, includeFailed?: boolean}} [options]
+ *   includeFinished=false 时在 SQL 层排除已完成/已取消（默认 true，保持低层中性）；
+ *   includeFailed=false 时把 failed 也排除（默认 true；面板的「显示失败」开关用它）。
  */
 function listRuns(options = {}) {
   const {
@@ -124,6 +125,7 @@ function listRuns(options = {}) {
     status,
     sessionId,
     includeFinished = true,
+    includeFailed = true,
   } = options;
 
   return withDb(dbPath, (db) => {
@@ -148,6 +150,11 @@ function listRuns(options = {}) {
     }
     if (includeFinished === false) {
       where.push("status NOT IN ('completed', 'cancelled')");
+    }
+    /* includeFailed=false：把失败的也当「已结束」排除（面板的「显示失败」开关）。
+       默认 true —— 保持低层中性，模型侧行为不变。 */
+    if (includeFailed === false) {
+      where.push("status != 'failed'");
     }
     params.push(limit);
     const rows = db

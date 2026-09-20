@@ -119,8 +119,10 @@ function listAgentRuns(args = {}, deps = {}) {
   const explicitSession = typeof args.sessionId === 'string' && args.sessionId.length > 0 ? args.sessionId : null;
   /* scope=session（默认）：只列「本会话」委托的任务；无法确定会话时回退全部。 */
   const activeSession = explicitSession || (args.scope === 'all' ? null : readActiveSession());
-  /* includeFinished 默认 true（模型侧行为不变）；面板传 false 以隐藏已完成/已取消。 */
+  /* includeFinished 默认 true（模型侧行为不变）；面板传 false 以隐藏已完成/已取消。
+     includeFailed 同理：面板的「显示失败」不勾选时传 false，把失败任务也当历史隐藏。 */
   const includeFinished = args.includeFinished !== false;
+  const includeFailed = args.includeFailed !== false;
   const query = (sessionId) =>
     listRuns({
       home: deps.home !== undefined ? deps.home : os.homedir(),
@@ -130,6 +132,7 @@ function listAgentRuns(args = {}, deps = {}) {
       status: typeof args.status === 'string' && args.status.length > 0 ? args.status : undefined,
       sessionId: sessionId || undefined,
       includeFinished,
+      includeFailed,
     });
 
   try {
@@ -465,6 +468,11 @@ const TOOL_DEFINITIONS = [
           type: 'boolean',
           description:
             'Include finished runs (completed / cancelled). Default true; the log panel passes false to hide them.',
+        },
+        includeFailed: {
+          type: 'boolean',
+          description:
+            'Include failed runs. Default true; the log panel passes false when its "show failed" filter is off, so failures count as history too.',
         },
       },
     },
