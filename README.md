@@ -160,9 +160,15 @@ dim-external-agents-extend restore                 # preview rolling a rename ba
 | Cursor | ✅ | ✅ | Task-level (no per-message time, see FAQ) |
 | Codex | ✅ | ✅ | Full (per event) |
 | Grok | ✅ | ✅ | Full (per event) |
-| OpenCode / ZCode | ✅ | Not yet | — |
+| OpenCode | ✅ | ✅ | Full (per event) |
+| Pi | ✅ | ✅ | Full (per event) |
+| ZCode | ✅ | Not yet | — |
 
-> The task list comes from dim's own task database, so every agent type can be listed; execution logs require per-agent session format adapters — Kimi / Cursor / Codex / Grok are done so far.
+> The task list comes from dim's own task database, so every agent type can be listed; execution logs require per-agent session format adapters — Kimi / Cursor / Codex / Grok / OpenCode / Pi are done so far.
+
+> OpenCode's log is read from `~/.local/share/opencode/opencode.db` (state-based: a part row is rewritten as it progresses, and text is streamed into it). The plugin therefore only emits a step's output once that step has finished (`step-finish` landed), trading a little latency for logs that are never duplicated or truncated mid-stream.
+
+> Pi's log is read from `~/.pi/agent/sessions/<cwd>/<timestamp>_<uuid>.jsonl` (append-only, like Kimi / Codex / Grok), so it uses a plain byte offset. Pi writes one line per assistant turn, so a turn's content shows up once that line lands — the same one-step-behind trade-off, for the same reason.
 
 ## FAQ
 
@@ -179,7 +185,7 @@ Cursor's session log (`store.db`) does not record per-message timestamps, only t
 That agent's log format contains parts the plugin does not recognize yet. No data is lost, but some events may be rendered in raw form — feel free to file an issue with the task ID.
 
 **The task says "no readable log"?**
-Two cases: ① the external session has been cleaned up (beyond the agent's own session retention); ② log reading for that agent type is not supported yet (Grok / OpenCode / ZCode).
+Two cases: ① the external session has been cleaned up (beyond the agent's own session retention); ② log reading for that agent type is not supported yet (ZCode).
 
 **The task says "task not found"?**
 The task record has been cleaned up, or the taskId is wrong.
