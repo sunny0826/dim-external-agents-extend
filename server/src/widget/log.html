@@ -336,6 +336,11 @@
     flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: 11.5px; letter-spacing: -0.01em;
     color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  /* 轨迹折叠段：一行统计摘要（图标 + 摘要 + 箭头），无 label */
+  .ev-sum {
+    flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 500; letter-spacing: -0.01em;
+    color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .ev-time {
     flex: 0 0 auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
     font-variant-numeric: tabular-nums;
@@ -903,22 +908,23 @@
       }
       elEvents.classList.toggle('fresh', state.freshEvents);
       state.freshEvents = false;
+      /* 默认折叠：非文本块全部折进「执行轨迹」摘要行；文本输出（Agent 正文）保持全宽可见。
+         事件流按文本输出切分——每段轨迹一个摘要行，展开后按原顺序列出逐行明细。 */
+      var pending = [];
+      function flushTrail() {
+        if (pending.length === 0) return;
+        elEvents.appendChild(renderTrajectory(pending));
+        pending = [];
+      }
       buildBlocks(state.events).forEach(function (b) {
-        if (b.type === 'sys') {
-          elEvents.appendChild(renderSysGroup(b.items));
-        } else if (b.type === 'work') {
-          // 连续工具事件：调用数 ≥ 2 聚合折叠；单个调用保持逐行（call + result 两行）
-          var calls = 0;
-          b.items.forEach(function (e) { if (e.kind === 'tool_call') calls += 1; });
-          if (calls >= 2) {
-            elEvents.appendChild(renderWorkGroup(b.items));
-          } else {
-            b.items.forEach(function (ev) { elEvents.appendChild(renderEvent(ev)); });
-          }
-        } else {
+        if (b.type === 'ev' && (b.ev.kind || 'unknown') === 'text') {
+          flushTrail();
           elEvents.appendChild(renderEvent(b.ev));
+          return;
         }
+        pending.push(b);
       });
+      flushTrail();
       if (state.runStatus === 'running') elEvents.appendChild(makeLiveIndicator());
     }
 
@@ -1002,43 +1008,82 @@
       return blocks;
     }
 
-    /** 连续工具事件 → 「工具调用」折叠组：标签计数摘要，展开为 rail 内逐行明细。 */
-    function renderWorkGroup(items) {
-      var counts = {};
-      var order = [];
-      var calls = 0;
-      var hasError = false;
-      items.forEach(function (e) {
-        if (e.kind === 'tool_call') {
-          calls += 1;
-          var l = toolLabel(e.name);
-          if (counts[l] === undefined) { counts[l] = 0; order.push(l); }
-          counts[l] += 1;
-        }
-        if (e.status === 'error') hasError = true;
-      });
-      var parts = order.slice(0, 4).map(function (l) { return l + ' ×' + counts[l]; });
-      var summary = parts.join(' · ') + (order.length > 4 ? ' 等' : '') + '（共 ' + calls + ' 步）';
+    /** 工具显示名 → 轨迹摘要分类（未匹配归 other）。 */
+    var TOOL_CATEGORY = {
+      '读取': 'read', '列出文件': 'read',
+      '写入': 'write', '编辑': 'write',
+      '执行': 'exec',
+      '搜索': 'search', '搜索内容': 'search', '搜索代码': 'search', '搜索网络': 'search',
+      '查找': 'search', '获取网页': 'search', '浏览器': 'search',
+    };
 
+    /** 折叠段内全部事件（work/sys 块是数组，ev 块是单条）。 */
+    function blockEvents(b) {
+      if (b.type === 'work' || b.type === 'sys') return b.items;
+      return b.ev ? [b.ev] : [];
+    }
+
+    /** 段内首条事件的 seq：折叠状态记忆的稳定 key（轮询重建后保持展开）。 */
+    function firstSeq(blocks) {
+      var evs = blockEvents(blocks[0]);
+      return evs.length ? evs[0].seq : '?';
+    }
+
+    /** 轨迹摘要：思考轮数 + 读/改文件、执行命令、搜索次数（为 0 的项不显示）。 */
+    function trajectorySummary(blocks) {
+      var think = 0;
+      var cat = { read: 0, write: 0, exec: 0, search: 0, other: 0 };
+      blocks.forEach(function (b) {
+        blockEvents(b).forEach(function (ev) {
+          if (ev.kind === 'think') { think += 1; return; }
+          if (ev.kind === 'tool_call') cat[TOOL_CATEGORY[toolLabel(ev.name)] || 'other'] += 1;
+        });
+      });
+      var parts = [];
+      if (think) parts.push('思考' + think + '轮');
+      var tools = [];
+      if (cat.read) tools.push('读' + cat.read + '次文件');
+      if (cat.write) tools.push('改' + cat.write + '次文件');
+      if (cat.exec) tools.push('执行' + cat.exec + '次命令');
+      if (cat.search) tools.push('搜索' + cat.search + '次');
+      if (cat.other) tools.push('其它工具' + cat.other + '次');
+      if (tools.length) parts.push(tools.join('、'));
+      if (parts.length === 0) {
+        var total = 0;
+        blocks.forEach(function (b) { total += blockEvents(b).length; });
+        return '系统事件 ' + total + ' 条';
+      }
+      return parts.join(' · ');
+    }
+
+    /** 一段轨迹 → 单行摘要（默认折叠），展开为 rail 内逐行明细（系统事件仍聚合为一行）。 */
+    function renderTrajectory(blocks) {
       var wrap = document.createElement('div');
-      wrap.className = 'ev expandable' + (hasError ? ' error' : '');
+      wrap.className = 'ev expandable';
       var head = document.createElement('div');
       head.className = 'ev-head';
       var icon = document.createElement('span');
       icon.className = 'ev-icon i-tool';
-      var label = document.createElement('span');
-      label.className = 'ev-label';
-      label.textContent = '工具调用';
-      var meta = document.createElement('span');
-      meta.className = 'ev-text';
-      meta.textContent = summary;
-      head.appendChild(icon); head.appendChild(label); head.appendChild(meta);
+      var sum = document.createElement('span');
+      sum.className = 'ev-sum';
+      sum.textContent = trajectorySummary(blocks);
+      head.appendChild(icon); head.appendChild(sum);
       wrap.appendChild(head); // 先挂 head，恢复展开时 body 才会追加在其后
+      var hasError = blocks.some(function (b) {
+        return blockEvents(b).some(function (ev) { return ev.status === 'error'; });
+      });
+      if (hasError) wrap.classList.add('error');
       appendChevron(head);
-      attachRowExpand(wrap, head, 'work:' + items[0].seq, function () {
+      attachRowExpand(wrap, head, 'traj:' + firstSeq(blocks), function () {
         var body = document.createElement('div');
         body.className = 'ev-body';
-        items.forEach(function (ev) { body.appendChild(renderEvent(ev)); });
+        blocks.forEach(function (b) {
+          if (b.type === 'sys') {
+            body.appendChild(renderSysGroup(b.items));
+          } else {
+            blockEvents(b).forEach(function (ev) { body.appendChild(renderEvent(ev)); });
+          }
+        });
         return body;
       });
       return wrap;

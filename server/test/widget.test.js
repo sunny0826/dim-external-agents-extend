@@ -145,6 +145,13 @@ function collectByTag(el, tag, out = []) {
   return out;
 }
 
+/** 收集 class 含 cls 的全部元素（空格分隔匹配，非子串）。 */
+function findByClass(el, cls, out = []) {
+  if (String(el.className || '').split(/\s+/).includes(cls)) out.push(el);
+  for (const c of el.children || []) findByClass(c, cls, out);
+  return out;
+}
+
 function toolResult(id, payload) {
   return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } };
 }
@@ -795,4 +802,127 @@ test('widget：日志详情页头部显示对应 Agent 的 logo（无图标时�
   items[1]._ls.click();
   await settle();
   assert.equal(w.elements.lhLogo.hidden, true);
+});
+
+/* ===== 轨迹折叠（默认折叠为一行统计摘要，Agent 正文保持可见） ===== */
+
+const tsAt = (n) => '2026-09-20T00:00:0' + n + '.000Z';
+
+/** 进入日志页并推入一批事件（轨迹折叠用例共用）。 */
+async function openLogWithEvents(w, events, readStatus = 'ok') {
+  w.dispatch({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2026-01-26' } });
+  await settle();
+  const listCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'list_agent_runs');
+  w.dispatch(
+    toolResult(listCall.id, {
+      status: 'ok',
+      count: 1,
+      runs: [{ taskId: 'task_fold', agentType: 'kimi', status: 'running', taskTitle: '折叠演示', startedAt: null }],
+    })
+  );
+  await settle();
+  clickFirstRun(w);
+  await settle();
+  const readCall = w.posted.find((x) => x.method === 'tools/call' && x.params.name === 'read_agent_run');
+  w.dispatch(
+    toolResult(readCall.id, {
+      status: readStatus,
+      taskId: 'task_fold',
+      cursor: '0',
+      nextCursor: null,
+      total: events.length,
+      events,
+      meta: { degraded: false, warnings: [] },
+    })
+  );
+  await settle();
+  return readCall;
+}
+
+/** 轨迹段展开体（rail）数量。 */
+function trailBodies(w) {
+  return findByClass(w.elements.events, 'ev-body').length;
+}
+
+/** 轨迹摘要行（含 .ev-sum 的那一行的 head 元素）。 */
+function trailHead(w) {
+  const sum = findByClass(w.elements.events, 'ev-sum')[0];
+  return sum ? sum.parentElement : null;
+}
+
+test('widget：轨迹默认折叠为一行统计摘要，Agent 正文保持可见', async () => {
+  const w = bootWidget();
+  await openLogWithEvents(w, [
+    { seq: 0, ts: tsAt(1), kind: 'think', name: null, status: null, text: '先看代码' },
+    { seq: 1, ts: tsAt(2), kind: 'tool_call', name: 'read_file', status: null, text: '读取 a.js', detail: { path: 'a.js' } },
+    { seq: 2, ts: tsAt(3), kind: 'tool_call', name: 'apply_patch', status: null, text: '改 a.js', detail: { path: 'a.js' } },
+    { seq: 3, ts: tsAt(4), kind: 'tool_call', name: 'run_command', status: null, text: '跑测试', detail: { command: 'npm test' } },
+    { seq: 4, ts: tsAt(5), kind: 'tool_result', name: 'run_command', status: null, text: '全部通过' },
+    { seq: 5, ts: tsAt(6), kind: 'text', name: null, status: null, text: '已完成修改。' },
+  ]);
+
+  const sums = findByClass(w.elements.events, 'ev-sum');
+  assert.equal(sums.length, 1, '非文本事件应折叠为一行摘要');
+  assert.equal(sums[0].textContent, '思考1轮 · 读1次文件、改1次文件、执行1次命令');
+
+  /* 默认折叠：不渲染任何明细行 */
+  assert.equal(trailBodies(w), 0, '默认应折叠，不渲染明细');
+  const folded = collectText(w.elements.events);
+  assert.ok(folded.includes('已完成修改。'), 'Agent 正文应直接可见');
+  assert.ok(!folded.includes('先看代码'), '折叠态不应出现思考内容');
+  assert.ok(!folded.includes('全部通过'), '折叠态不应出现工具结果');
+
+  /* 点击整行 → 展开明细（思考 / 工具调用 / 结果） */
+  trailHead(w)._ls.click();
+  assert.equal(trailBodies(w), 1, '展开后应出现明细 rail');
+  const opened = collectText(w.elements.events);
+  assert.ok(opened.includes('先看代码'), '展开后应能看到思考行');
+  assert.ok(opened.includes('读取') && opened.includes('全部通过'), '展开后应能看到工具调用与结果行');
+});
+
+test('widget：折叠段内有失败调用时，摘要行标红', async () => {
+  const w = bootWidget();
+  await openLogWithEvents(w, [
+    { seq: 0, ts: tsAt(1), kind: 'tool_call', name: 'run_command', status: null, text: '跑测试', detail: { command: 'npm test' } },
+    { seq: 1, ts: tsAt(2), kind: 'tool_result', name: 'run_command', status: 'error', text: '失败' },
+  ]);
+
+  const sums = findByClass(w.elements.events, 'ev-sum');
+  assert.equal(sums.length, 1);
+  assert.ok(trailHead(w).parentElement.classList.contains('error'), '失败调用应在折叠态即可察觉');
+});
+
+test('widget：轮询重建后保持轨迹段的展开状态，摘要随新事件更新', async () => {
+  const w = bootWidget();
+  await openLogWithEvents(
+    w,
+    [{ seq: 0, ts: tsAt(1), kind: 'tool_call', name: 'read_file', status: null, text: '读取', detail: { path: 'a.js' } }],
+    'running'
+  );
+
+  findByClass(w.elements.events, 'ev-sum')[0].parentElement._ls.click();
+  assert.equal(trailBodies(w), 1, '展开后应出现明细');
+
+  /* 触发一次轮询增量：新事件追加到同一段 → 重建后仍应展开 */
+  const timer = w.intervals.filter((it) => it.ms === 2000).pop();
+  assert.ok(timer, '运行中任务应有 2s 轮询');
+  timer.fn();
+  await settle();
+  const pollCall = w.posted.filter((x) => x.method === 'tools/call' && x.params.name === 'read_agent_run').pop();
+  w.elements.events.children.length = 0; // stub 不实现 textContent='' 的节点清理，这里手动模拟重建
+  w.dispatch(
+    toolResult(pollCall.id, {
+      status: 'running',
+      taskId: 'task_fold',
+      cursor: '1',
+      nextCursor: null,
+      total: 2,
+      events: [{ seq: 1, ts: tsAt(2), kind: 'tool_call', name: 'run_command', status: null, text: '跑测试', detail: { command: 'npm test' } }],
+      meta: { degraded: false, warnings: [] },
+    })
+  );
+  await settle();
+
+  assert.equal(trailBodies(w), 1, '轮询重建后应保持展开');
+  assert.equal(findByClass(w.elements.events, 'ev-sum')[0].textContent, '读1次文件、执行1次命令');
 });
