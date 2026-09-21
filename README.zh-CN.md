@@ -134,6 +134,8 @@ ln -s "$(pwd)" ~/.agents/plugins/external-agents-extend
 | OpenCode | `~/.local/share/opencode/opencode.db` → `session.title` | ✅ |
 | ZCode | `~/.zcode/cli/db/db.sqlite` → `session.title` + `title_source: 'custom'` | ✅ |
 
+Codex 有一个例外：dim 启动 Codex 的方式**不写** `session_index.jsonl`，所以 dim 派发的会话不在那个索引里（本机 31/31 都缺失）。因此会话列表也会读 rollout 树把派发会话补回来，写回名称时是**追加**一条索引记录、而不是改现有记录——统一名称才会出现在 Codex 自己的会话列表里。
+
 改名安全约束：手动改名必须显式点名会话（没有「全部重命名」）；默认只出预览，写入需要显式确认；备份落在 `~/.dimcode/ea-extend-backups/<时间戳>/`；你自己设过标题的会话默认跳过，除非强制。建议在对应 Agent 空闲时改名——Codex 会重写自己的索引，Grok 有 `summary.json.lock`；OpenCode 的库可能有好几个 GB，因此只备份受影响的那一行。不想要 `[dim]` / `[手动]` 标记时传 `sourcePrefix: false`。每次写入前都备份到 `~/.dimcode/ea-extend-backups/<时间戳>/`，用 `dim-external-agents-extend restore` 可按字节回滚最近一次。
 
 ### CLI
