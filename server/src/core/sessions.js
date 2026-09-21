@@ -35,8 +35,12 @@ const {
   normalizeTitle,
 } = require('./session-name');
 
-/** 任务↔会话时间容差（ms）：cursor/grok/opencode 等 CLI 启动 + 建会话有数秒开销。 */
-const TOLERANCE_MS = { kimi: 5000, codex: 5000, cursor: 20000, grok: 30000, opencode: 30000, zcode: 30000 };
+/**
+ * 任务↔会话时间容差（ms）：CLI 启动 + 建会话有数秒开销，冷启动可达 5.4s（codex 实测
+ * Δ=5.354s / 5.447s），阈值必须覆盖冷启动，否则会话关联不到 dim 任务。
+ * 必须与 mapping.js 的 TOLERANCE_MS 保持一致：同一批任务在两处不能得出不同结论。
+ */
+const TOLERANCE_MS = { kimi: 5000, codex: 20000, cursor: 20000, grok: 30000, opencode: 30000, zcode: 30000 };
 const DEFAULT_TOLERANCE_MS = 20000;
 
 const SUPPORTED_AGENTS = ['codex', 'kimi', 'cursor', 'grok', 'opencode', 'zcode'];

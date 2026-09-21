@@ -185,7 +185,7 @@ Cursor's session log (`store.db`) does not record per-message timestamps, only t
 That agent's log format contains parts the plugin does not recognize yet. No data is lost, but some events may be rendered in raw form — feel free to file an issue with the task ID.
 
 **The task says "no readable log"?**
-Two cases: ① the external session has been cleaned up (beyond the agent's own session retention); ② log reading for that agent type is not supported yet (ZCode).
+Three cases: ① the external session has been cleaned up (beyond the agent's own session retention); ② log reading for that agent type is not supported yet (ZCode); ③ the session file is still there, but its creation time falls outside the matching window the plugin uses to link a task to a session file (per agent type, 5–30s).
 
 **The task says "task not found"?**
 The task record has been cleaned up, or the taskId is wrong.
