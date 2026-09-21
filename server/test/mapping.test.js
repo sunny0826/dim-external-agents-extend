@@ -129,6 +129,60 @@ test('codex：rollout 首行 session_meta 匹配', () => {
   assert.equal(m.ref.id, 'sid-1');
 });
 
+/** 建一个 codex rollout：<home>/.codex/sessions/<Y>/<M>/<D>/rollout-…jsonl，时间戳 = ts + deltaMs。 */
+function mkCodexRollout(home, ts, { sessionId, deltaMs, originator = 'dimcode', name = 'x' }) {
+  const fileTs = ts + deltaMs;
+  const d = new Date(fileTs);
+  const pad = (n) => String(n).padStart(2, '0');
+  const dir = path.join(home, '.codex', 'sessions', String(d.getFullYear()), pad(d.getMonth() + 1), pad(d.getDate()));
+  fs.mkdirSync(dir, { recursive: true });
+  const iso = new Date(fileTs).toISOString();
+  const payload = { session_id: sessionId, cwd: '/w', timestamp: iso };
+  if (originator !== null) payload.originator = originator;
+  const file = path.join(dir, `rollout-${iso.replace(/[:.]/g, '-')}-${name}.jsonl`);
+  fs.writeFileSync(file, JSON.stringify({ timestamp: iso, ordinal: 0, type: 'session_meta', payload }) + '\n');
+  return file;
+}
+
+test('codex：冷启动 Δ=5.4s（旧 5s 阈值外）仍能匹配', () => {
+  const home = mkTmpHome();
+  const ts = Date.parse('2026-09-21T06:17:45.226Z'); // 实测失败样本：rollout 晚 5.354s
+  mkCodexRollout(home, ts, { sessionId: 'sid-cold', deltaMs: 5354, name: 'cold' });
+  const m = mapRunToSession({ taskId: `task_${ts}_h4ft4z`, agentType: 'codex' }, { home });
+  assert.equal(m.status, 'matched');
+  assert.equal(m.ref.adapter, 'codex');
+  assert.equal(m.ref.id, 'sid-cold');
+});
+
+test('codex：优先 dim 派发的会话，不误选时间更近的用户自建会话', () => {
+  const home = mkTmpHome();
+  const ts = Date.parse('2026-09-21T06:17:45.226Z');
+  mkCodexRollout(home, ts, { sessionId: 'sid-user', deltaMs: 200, originator: 'Codex Desktop', name: 'user' });
+  mkCodexRollout(home, ts, { sessionId: 'sid-dim', deltaMs: 5354, originator: 'dimcode', name: 'dim' });
+  const m = mapRunToSession({ taskId: `task_${ts}_h4ft4z`, agentType: 'codex' }, { home });
+  assert.equal(m.status, 'matched');
+  assert.equal(m.ref.id, 'sid-dim');
+});
+
+test('codex：窗口内没有 dimcode 候选 → 按时间戳回退并显式告警', () => {
+  const home = mkTmpHome();
+  const ts = Date.parse('2026-09-21T06:17:45.226Z');
+  mkCodexRollout(home, ts, { sessionId: 'sid-other', deltaMs: 900, originator: 'codex-tui', name: 'other' });
+  const m = mapRunToSession({ taskId: `task_${ts}_h4ft4z`, agentType: 'codex' }, { home });
+  assert.equal(m.status, 'matched');
+  assert.equal(m.ref.id, 'sid-other');
+  assert.ok(m.warnings.some((w) => w.code === 'codex_originator_unknown'), '应带 codex_originator_unknown 警告');
+});
+
+test('容差表在 mapping 与 sessions 两处必须一致（防止再次分叉）', () => {
+  const { TOLERANCE_MS: mapTol } = require('../src/core/mapping');
+  const { TOLERANCE_MS: sessTol } = require('../src/core/sessions');
+  for (const [agent, ms] of Object.entries(sessTol)) {
+    assert.equal(mapTol[agent], ms, `${agent} 容差在两处不一致：mapping=${mapTol[agent]} sessions=${ms}`);
+  }
+  assert.ok(mapTol.codex >= 20000, 'codex 容差必须覆盖冷启动（实测 5.4s）');
+});
+
 /* ------------------------------- grok ---------------------------------- */
 
 /** 建一个 grok 会话目录：<home>/.grok/sessions/<enc-cwd>/<id>/{summary.json,updates.jsonl} */

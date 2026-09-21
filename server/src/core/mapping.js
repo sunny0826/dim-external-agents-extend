@@ -19,10 +19,34 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { warning } = require('./events');
 
-const DEFAULT_TOLERANCE_MS = 5000;
+/**
+ * 任务↔会话时间容差（ms）。taskId 里的时间戳是 dim 的派发时刻，而会话文件的时间戳是
+ * 外部 CLI 真正建会话的时刻——中间隔着进程启动、认证与项目扫描，冷启动实测可达 5.4s
+ * （codex 2026-09-21 样本 Δ=5.354s / 5.447s）。阈值必须覆盖冷启动，否则任务被判为
+ * 「未找到对应的外部会话」。
+ * 与 sessions.js 的 TOLERANCE_MS 保持同一张表：同一批任务在两处必须得到相同结论。
+ */
+const TOLERANCE_MS = {
+  kimi: 5000,
+  codex: 20000,
+  cursor: 20000,
+  grok: 30000,
+  opencode: 30000,
+  // zcode 目前没有日志 finder（FINDERS 未登记），但容差表与 sessions.js 保持同构，
+  // 避免将来补上 finder 时静默落到 DEFAULT 而与会话列表分叉。
+  zcode: 30000,
+};
+
+/** 未在 TOLERANCE_MS 中登记的 agent 的兜底窗口。 */
+const DEFAULT_TOLERANCE_MS = 20000;
 
 /** opencode CLI 启动 + 建会话有数秒开销，与 sessions.js 的 TOLERANCE_MS.opencode 对齐。 */
 const OPENCODE_TOLERANCE_MS = 30000;
+
+/** 按 agent 类型取时间容差。 */
+function toleranceFor(agentType) {
+  return TOLERANCE_MS[agentType] || DEFAULT_TOLERANCE_MS;
+}
 
 /** taskId → 毫秒时间戳；无法解析返回 null。 */
 function taskTimestampMs(taskId) {
@@ -258,6 +282,14 @@ function findCursorRef(run, { home, toleranceMs }) {
 
 /* ------------------------------- codex --------------------------------- */
 
+/**
+ * dim 派发的 codex 会话在 session_meta.originator 里固定标记为 'dimcode'（本机 28/28 实测）。
+ * 用于把 dim 任务和用户自己在 Codex Desktop / codex-tui 里开的会话区分开。
+ */
+function isDimDelegatedCodex(payload) {
+  return Boolean(payload) && payload.originator === 'dimcode';
+}
+
 function findCodexRef(run, { home, toleranceMs }) {
   const ts = taskTimestampMs(run.taskId);
   if (ts === null) return null;
@@ -293,11 +325,25 @@ function findCodexRef(run, { home, toleranceMs }) {
       const fileTs = iso ? Date.parse(iso) : NaN;
       if (!Number.isFinite(fileTs)) continue;
       const delta = Math.abs(fileTs - ts);
-      if (delta <= toleranceMs) candidates.push({ full, payload, delta });
+      if (delta <= toleranceMs) {
+        candidates.push({ full, payload, delta, delegated: isDimDelegatedCodex(payload) });
+      }
     }
   }
   if (candidates.length === 0) return null;
-  const { best, confidence, warnings } = pickCandidate(candidates);
+  // `~/.codex/sessions` 是 dim 与用户自建会话共用的目录树，只按时间戳会误选用户会话
+  // （放宽容差后风险更高）。优先在 dim 派发的候选里裁决；窗口内一个 dimcode 候选都没有时
+  // 回退到全部候选并显式告警——未来 codex 改了这个字段值也不至于让匹配整体失效。
+  const delegated = candidates.filter((c) => c.delegated);
+  const { best, confidence, warnings } = pickCandidate(delegated.length > 0 ? delegated : candidates);
+  if (delegated.length === 0) {
+    warnings.push(
+      warning(
+        'codex_originator_unknown',
+        '时间窗内没有 originator=dimcode 的 codex 会话，已按时间戳回退匹配（可能选到用户自建会话）'
+      )
+    );
+  }
   return {
     status: 'matched',
     agentType: 'codex',
@@ -788,7 +834,6 @@ const FINDERS = {
  */
 function mapRunToSession(run, options = {}) {
   const home = options.home || os.homedir();
-  const toleranceMs = options.toleranceMs || DEFAULT_TOLERANCE_MS;
   const agentType = run && run.agentType ? run.agentType : null;
 
   if (!agentType) {
@@ -812,9 +857,8 @@ function mapRunToSession(run, options = {}) {
       warnings: [warning('unsupported_agent', `暂不支持 ${agentType} 的会话定位`)],
     };
   }
-  // 容差按 agent 定制：cursor CLI 启动 + 会话目录创建有数秒开销（实测 birthtime 晚于任务派发 5.8s），
-  // 用 20s 窗口；kimi/codex 实测 <1s，保持 5s。
-  const effectiveToleranceMs = agentType === 'cursor' ? Math.max(toleranceMs, 20000) : toleranceMs;
+  // 容差按 agent 定制（见 TOLERANCE_MS）；调用方显式传入 toleranceMs 时以调用方为准。
+  const effectiveToleranceMs = options.toleranceMs || toleranceFor(agentType);
   let result;
   try {
     result = finder(run, { home, toleranceMs: effectiveToleranceMs });
@@ -834,4 +878,4 @@ function mapRunToSession(run, options = {}) {
   return result;
 }
 
-module.exports = { mapRunToSession, taskTimestampMs, DEFAULT_TOLERANCE_MS };
+module.exports = { mapRunToSession, taskTimestampMs, DEFAULT_TOLERANCE_MS, TOLERANCE_MS };
