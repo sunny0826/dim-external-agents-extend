@@ -130,7 +130,7 @@ test('codex：rollout 首行 session_meta 匹配', () => {
 });
 
 /** 建一个 codex rollout：<home>/.codex/sessions/<Y>/<M>/<D>/rollout-…jsonl，时间戳 = ts + deltaMs。 */
-function mkCodexRollout(home, ts, { sessionId, deltaMs, originator = 'dimcode', name = 'x' }) {
+function mkCodexRollout(home, ts, { sessionId, deltaMs, originator = 'dimcode', name = 'x', userTexts = [] }) {
   const fileTs = ts + deltaMs;
   const d = new Date(fileTs);
   const pad = (n) => String(n).padStart(2, '0');
@@ -139,8 +139,18 @@ function mkCodexRollout(home, ts, { sessionId, deltaMs, originator = 'dimcode', 
   const iso = new Date(fileTs).toISOString();
   const payload = { session_id: sessionId, cwd: '/w', timestamp: iso };
   if (originator !== null) payload.originator = originator;
+  const lines = [JSON.stringify({ timestamp: iso, ordinal: 0, type: 'session_meta', payload })];
+  for (const text of userTexts) {
+    lines.push(
+      JSON.stringify({
+        timestamp: iso,
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] },
+      })
+    );
+  }
   const file = path.join(dir, `rollout-${iso.replace(/[:.]/g, '-')}-${name}.jsonl`);
-  fs.writeFileSync(file, JSON.stringify({ timestamp: iso, ordinal: 0, type: 'session_meta', payload }) + '\n');
+  fs.writeFileSync(file, lines.join('\n') + '\n');
   return file;
 }
 
@@ -181,6 +191,65 @@ test('容差表在 mapping 与 sessions 两处必须一致（防止再次分叉�
     assert.equal(mapTol[agent], ms, `${agent} 容差在两处不一致：mapping=${mapTol[agent]} sessions=${ms}`);
   }
   assert.ok(mapTol.codex >= 20000, 'codex 容差必须覆盖冷启动（实测 5.4s）');
+});
+
+test('codex：并发派发时间戳无法区分时，用 prompt 指纹各归其位', () => {
+  const home = mkTmpHome();
+  // 真实样本：两个任务相差 470ms，两个 rollout 首行只差 58ms
+  const fileA = Date.parse('2026-09-21T01:37:49.953Z');
+  const fileB = fileA + 58;
+  const ts120 = fileA - 2700;
+  const ts102 = fileA - 2750;
+  // 真实形态：两个 prompt 开头各带自己的 Issue ID，结尾是同一段模板文本
+  const tail = ' ## 交付 - 完成后运行 `rtk proxy mise exec -- pnpm ...` 形式，其他 shell 命令加 `rtk` 前缀。';
+  const prompt120 = `实现 Linear GUO-120（M5-26）：右栏字幕草稿与时间轴批量操作的协调未定义（P2）。${tail}`;
+  const prompt102 = `实现 Linear GUO-102：预览实时冷启动首次切到 image 段呈现长尾（image 无对等预加载）。${tail}`;
+
+  mkCodexRollout(home, ts120, { sessionId: 'sid-120', deltaMs: fileA - ts120, name: 'a', userTexts: [prompt120] });
+  mkCodexRollout(home, ts102, { sessionId: 'sid-102', deltaMs: fileB - ts102, name: 'b', userTexts: [prompt102] });
+
+  const run120 = { taskId: `task_${ts120}_zdwv5n`, agentType: 'codex', prompt: prompt120 };
+  const run102 = { taskId: `task_${ts102}_yhr0gd`, agentType: 'codex', prompt: prompt102 };
+
+  // 前提校验：没有 prompt 时时间戳会把 102 也判到 120 的会话——这正是要修的场景
+  const blind = mapRunToSession({ ...run102, prompt: null }, { home });
+  assert.equal(blind.ref.id, 'sid-120', '前提：时间戳单独无法区分这两个任务');
+
+  const a = mapRunToSession(run102, { home });
+  const b = mapRunToSession(run120, { home });
+  assert.equal(a.ref.id, 'sid-102', 'GUO-102 应认领自己的会话');
+  assert.equal(b.ref.id, 'sid-120', 'GUO-120 应认领自己的会话');
+  assert.equal(a.matchedBy, 'timestamp+prompt');
+  assert.equal(a.confidence, 'high');
+  assert.equal(a.warnings.length, 0);
+});
+
+test('codex：prompt 尾部模板相同不会造成交叉命中（指纹不做 tail 匹配）', () => {
+  const home = mkTmpHome();
+  const ts = Date.parse('2026-09-21T01:37:45.000Z');
+  const tail = ' 收尾：跑测试，提交，然后汇报结果。';
+  const promptA = '实现 Linear GUO-200：甲任务的具体描述，这段是独特的。' + tail;
+  const promptB = '实现 Linear GUO-201：乙任务的具体描述，这段也是独特的。' + tail;
+  mkCodexRollout(home, ts, { sessionId: 'sid-a', deltaMs: 2500, name: 'a', userTexts: [promptA] });
+  mkCodexRollout(home, ts, { sessionId: 'sid-b', deltaMs: 2530, name: 'b', userTexts: [promptB] });
+  const a = mapRunToSession({ taskId: `task_${ts}_aaa111`, agentType: 'codex', prompt: promptA }, { home });
+  const b = mapRunToSession({ taskId: `task_${ts}_bbb222`, agentType: 'codex', prompt: promptB }, { home });
+  assert.equal(a.ref.id, 'sid-a');
+  assert.equal(b.ref.id, 'sid-b');
+});
+
+test('codex：同一 prompt 派发两次（同级多命中）→ 交回时间戳裁决并保留歧义警告', () => {
+  const home = mkTmpHome();
+  const ts = Date.parse('2026-09-21T01:37:45.000Z');
+  const prompt = '实现 Linear GUO-300：同一个 prompt 被派发了两次，指纹无法区分。';
+  mkCodexRollout(home, ts, { sessionId: 'sid-1', deltaMs: 2500, name: '1', userTexts: [prompt] });
+  mkCodexRollout(home, ts, { sessionId: 'sid-2', deltaMs: 2530, name: '2', userTexts: [prompt] });
+  const m = mapRunToSession({ taskId: `task_${ts}_dup000`, agentType: 'codex', prompt }, { home });
+  assert.equal(m.status, 'matched');
+  assert.equal(m.ref.id, 'sid-1'); // 时间戳更近的那个
+  assert.equal(m.matchedBy, 'timestamp');
+  assert.equal(m.confidence, 'low');
+  assert.ok(m.warnings.some((w) => w.code === 'ambiguous_candidates'));
 });
 
 /* ------------------------------- grok ---------------------------------- */

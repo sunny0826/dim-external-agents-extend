@@ -105,16 +105,14 @@ function safeReadJsonl(file, maxLines = 20000) {
   return out;
 }
 
-/** 只读文件头部若干字节并返回第一行（避免为读 session_meta 而载入整个 rollout 文件）。 */
-function readFirstLine(file, maxBytes = 262144) {
+/** 只读文件头部若干字节（避免为解析元数据/指纹而载入整个会话文件）。 */
+function readHead(file, maxBytes) {
   let fd;
   try {
     fd = fs.openSync(file, 'r');
     const buf = Buffer.alloc(maxBytes);
     const n = fs.readSync(fd, buf, 0, maxBytes, 0);
-    const text = buf.subarray(0, n).toString('utf8');
-    const idx = text.indexOf('\n');
-    return idx >= 0 ? text.slice(0, idx) : text;
+    return buf.subarray(0, n).toString('utf8');
   } catch {
     return null;
   } finally {
@@ -126,6 +124,14 @@ function readFirstLine(file, maxBytes = 262144) {
       }
     }
   }
+}
+
+/** 只读文件头部若干字节并返回第一行（避免为读 session_meta 而载入整个 rollout 文件）。 */
+function readFirstLine(file, maxBytes = 262144) {
+  const head = readHead(file, maxBytes);
+  if (head === null) return null;
+  const idx = head.indexOf('\n');
+  return idx >= 0 ? head.slice(0, idx) : head;
 }
 
 function pad2(n) {
@@ -290,6 +296,49 @@ function isDimDelegatedCodex(payload) {
   return Boolean(payload) && payload.originator === 'dimcode';
 }
 
+/**
+ * rollout 头部里所有 user 消息文本（归一化）。dim 把 prompt 原样交给 CLI，所以任务 prompt
+ * 会作为其中一条出现——但**不是第一条**：前面还有 CLI 自己注入的 recommended_plugins、
+ * AGENTS.md 与 environment_context。只读文件头部若干字节。
+ */
+function codexUserTexts(file, maxBytes = 1048576) {
+  const head = readHead(file, maxBytes);
+  if (head === null) return [];
+  const out = [];
+  for (const line of head.split('\n')) {
+    const t = line.trim();
+    if (t.length === 0 || t[0] !== '{') continue;
+    let rec;
+    try {
+      rec = JSON.parse(t);
+    } catch {
+      continue; // 头部截断处可能是半行
+    }
+    const payload = rec && rec.payload;
+    if (!payload || payload.type !== 'message' || payload.role !== 'user') continue;
+    for (const part of Array.isArray(payload.content) ? payload.content : []) {
+      if (part && part.type === 'input_text' && typeof part.text === 'string') out.push(normalizeText(part.text));
+    }
+  }
+  return out;
+}
+
+/**
+ * 用 dim 侧的 prompt 给候选会话打分：
+ *   2 = 与某条 user 消息归一化后完整相等（dim 原样传递，最强判据）
+ *   1 = 命中 prompt 开头 60 字符（开头带任务标题，是独特的）
+ *   0 = 无
+ * 刻意不做 tail 匹配：这类委派 prompt 的结尾是模板文本，并发任务的结尾一字不差
+ * （实测 GUO-102 / GUO-120 的尾 60 字符完全相同），用 tail 会让两个候选互相命中。
+ */
+function codexPromptScore(prompt, userTexts) {
+  const p = normalizeText(prompt);
+  if (p.length < 24) return 0; // 太短不足以作为指纹
+  if (userTexts.some((t) => t === p)) return 2;
+  const head = p.slice(0, 60);
+  return userTexts.some((t) => t.includes(head)) ? 1 : 0;
+}
+
 function findCodexRef(run, { home, toleranceMs }) {
   const ts = taskTimestampMs(run.taskId);
   if (ts === null) return null;
@@ -335,15 +384,44 @@ function findCodexRef(run, { home, toleranceMs }) {
   // （放宽容差后风险更高）。优先在 dim 派发的候选里裁决；窗口内一个 dimcode 候选都没有时
   // 回退到全部候选并显式告警——未来 codex 改了这个字段值也不至于让匹配整体失效。
   const delegated = candidates.filter((c) => c.delegated);
-  const { best, confidence, warnings } = pickCandidate(delegated.length > 0 ? delegated : candidates);
+  const pool = delegated.length > 0 ? delegated : candidates;
+  const extraWarnings = [];
   if (delegated.length === 0) {
-    warnings.push(
+    extraWarnings.push(
       warning(
         'codex_originator_unknown',
         '时间窗内没有 originator=dimcode 的 codex 会话，已按时间戳回退匹配（可能选到用户自建会话）'
       )
     );
   }
+
+  // 并发派发：多个任务在同一时间窗里各建一个会话，时间戳只差几十毫秒，无法区分
+  // （实测两个任务相差 470ms、两个 rollout 相差 58ms，结果都指向同一个文件）。
+  // 这时用 dim 侧的 prompt 认领会话——prompt 是原样传下去的，能唯一确定归属。
+  // 只有多候选才做：单候选的时间戳已经唯一，不必付读文件的代价。
+  if (pool.length > 1) {
+    for (const c of pool) c.fp = codexPromptScore(run.prompt, codexUserTexts(c.full));
+    const bestFp = Math.max(...pool.map((c) => c.fp));
+    const hits = bestFp > 0 ? pool.filter((c) => c.fp === bestFp) : [];
+    // 唯一命中才认；同级多命中（例如同一 prompt 被派发两次）交回时间戳裁决。
+    if (hits.length === 1) {
+      return {
+        status: 'matched',
+        agentType: 'codex',
+        ref: {
+          adapter: 'codex',
+          kind: 'file',
+          path: hits[0].full,
+          id: (hits[0].payload && hits[0].payload.session_id) || null,
+        },
+        matchedBy: 'timestamp+prompt',
+        confidence: 'high',
+        warnings: extraWarnings,
+      };
+    }
+  }
+
+  const { best, confidence, warnings } = pickCandidate(pool);
   return {
     status: 'matched',
     agentType: 'codex',
@@ -355,7 +433,7 @@ function findCodexRef(run, { home, toleranceMs }) {
     },
     matchedBy: 'timestamp',
     confidence,
-    warnings,
+    warnings: [...extraWarnings, ...warnings],
   };
 }
 
