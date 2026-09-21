@@ -25,7 +25,7 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 
 const { listRuns } = require('./runs');
-const { taskTimestampMs } = require('./mapping');
+const { taskTimestampMs, mapRunToSession } = require('./mapping');
 const {
   deriveSessionTitle,
   formatDisplayName,
@@ -335,6 +335,8 @@ function buildTaskIndex({ home, dbPath, limit, warnings }) {
       ts,
       title: run.taskTitle || null,
       agentType: run.agentType || null,
+      /* 保留 prompt：codex 的补充会话要用它做指纹（见 delegatedCodexSessions）。 */
+      prompt: run.prompt || null,
       tokens: tokensOf(run.taskTitle || '', run.prompt || ''),
     });
   }
@@ -379,6 +381,66 @@ function linkTask(session, taskIndex, toleranceMs) {
     confidence: ambiguous ? 'low' : 'medium',
     matchedBy: 'timestamp',
   };
+}
+
+/**
+ * dim 派发但不在 codex 索引里的会话。
+ *
+ * dim 启动 codex 的方式不写 `~/.codex/session_index.jsonl`（本机实测 31/31 个 dim 派发会话
+ * 都不在索引里，而 Codex Desktop 有 71% 在），而本模块的 codex 数据源就是那个索引——
+ * 这些会话因此在列表里完全不可见，改名也无从下手（rollout 首行没有 title 字段，
+ * 索引是 codex 唯一的标题载体）。这里用 dim 任务反查 rollout 树把它们补回来。
+ *
+ * 只为「时间窗里没有任何已知会话」的任务做定位：已有会话落在窗口内时 linkTask 会处理关联，
+ * 不必付读文件的代价。
+ */
+function delegatedCodexSessions({ home, taskIndex, known }) {
+  const codexTasks = taskIndex.filter((t) => t.agentType === 'codex');
+  if (codexTasks.length === 0) return [];
+  const tolerance = TOLERANCE_MS.codex || DEFAULT_TOLERANCE_MS;
+  const knownCodex = known.filter((s) => s.agentType === 'codex');
+  const knownStarts = knownCodex.map((s) => s.createdAt).filter((v) => typeof v === 'number');
+  const knownIds = new Set(knownCodex.map((s) => s.sessionId));
+  const indexFile = path.join(home, '.codex', 'session_index.jsonl');
+  const out = [];
+  for (const task of codexTasks) {
+    if (knownStarts.some((t) => Math.abs(t - task.ts) <= tolerance)) continue;
+    let mapping;
+    try {
+      mapping = mapRunToSession({ taskId: task.taskId, agentType: 'codex', prompt: task.prompt }, { home });
+    } catch {
+      continue; // 单个任务定位失败不影响其余会话
+    }
+    if (!mapping || mapping.status !== 'matched' || !mapping.ref || typeof mapping.ref.id !== 'string') continue;
+    if (knownIds.has(mapping.ref.id)) continue;
+    knownIds.add(mapping.ref.id);
+    const head = readFirstLine(mapping.ref.path);
+    let meta = null;
+    try {
+      meta = head === null ? null : JSON.parse(head).payload;
+    } catch {
+      meta = null;
+    }
+    const startedAt = meta && meta.timestamp ? toMs(meta.timestamp) : null;
+    out.push({
+      agentType: 'codex',
+      sessionId: mapping.ref.id,
+      path: indexFile,
+      rolloutPath: mapping.ref.path,
+      createdAt: startedAt,
+      createdAtSource: 'rollout',
+      updatedAt: startedAt,
+      cwd: meta && typeof meta.cwd === 'string' ? meta.cwd : null,
+      rawTitle: '', // 索引里没有这条，也就没有标题；命名会走 prompt 推导
+      prompt: typeof task.prompt === 'string' ? task.prompt : null,
+      customTitle: false,
+      writable: true,
+      writebackKind: 'jsonl-index',
+      /* 不在 codex 索引里：改名要往索引追加一条，而不是改现有条目 */
+      indexMissing: true,
+    });
+  }
+  return out;
 }
 
 /* ------------------------------ 各 agent 读取 ---------------------------- */
@@ -756,17 +818,20 @@ const WRITERS = {
   codex(ctx, session, title) {
     const file = session.path;
     const entries = safeReadJsonl(file);
-    let changed = 0;
-    const lines = entries.map((e) => {
-      if (e && e.id === session.sessionId) {
-        if (e.thread_name === title) return e;
-        changed += 1;
-        return { ...e, thread_name: title };
-      }
-      return e;
-    });
-    if (changed === 0) return { status: 'skipped', reason: '索引中的名称已是目标名称' };
-    const backupPath = backupFile(ctx.home, file, ctx.now);
+    /* 索引可能整个不存在（新装 codex 或索引被删）——那没有可备份的内容，追加会把它建出来。 */
+    const backup = () => (safeStat(file) === null ? null : backupFile(ctx.home, file, ctx.now));
+    const existing = entries.find((e) => e && e.id === session.sessionId);
+    if (existing === undefined) {
+      /* dim 派发的会话不在 codex 索引里（dim 的调用方式不写 session_index）——按 codex
+         自己的条目格式追加一条，否则「统一命名」对这些会话永远无效。 */
+      const backupPath = backup();
+      const appended = [...entries, { id: session.sessionId, thread_name: title, updated_at: new Date(ctx.now).toISOString() }];
+      atomicWrite(file, `${appended.map((l) => JSON.stringify(l)).join('\n')}\n`);
+      return { status: 'renamed', backupPath, appended: true };
+    }
+    if (existing.thread_name === title) return { status: 'skipped', reason: '索引中的名称已是目标名称' };
+    const backupPath = backup();
+    const lines = entries.map((e) => (e && e.id === session.sessionId ? { ...e, thread_name: title } : e));
     atomicWrite(file, `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`);
     return { status: 'renamed', backupPath };
   },
@@ -903,6 +968,26 @@ function listExternalSessions(options = {}) {
     }
   }
 
+  /* codex：dim 的调用方式不写 session_index.jsonl，索引里根本没有 dim 派发的会话。
+     只读索引会让它们在列表里完全不可见（改名也无从下手），所以用 dim 任务反查 rollout 补回。 */
+  if (wanted.length === 0 || wanted.includes('codex')) {
+    try {
+      const supplemented = delegatedCodexSessions({ home, taskIndex, known: raw });
+      if (supplemented.length > 0) {
+        raw = raw.concat(supplemented);
+        warnings.push({
+          code: 'codex_index_gap',
+          message: `codex 索引里没有 ${supplemented.length} 个 dim 派发的会话，已从 rollout 树补回（改名时会往索引追加条目）`,
+        });
+      }
+    } catch (err) {
+      warnings.push({
+        code: 'codex_supplement_failed',
+        message: `codex 补充会话失败：${String((err && err.message) || err)}`,
+      });
+    }
+  }
+
   const sessions = raw.map((session) => {
     const tolerance = TOLERANCE_MS[session.agentType] || DEFAULT_TOLERANCE_MS;
     const dimTask = linkTask(session, taskIndex, tolerance);
@@ -1015,6 +1100,9 @@ function slimSession(s) {
     dimTask: s.dimTask,
     writable: Boolean(s.writable),
     path: s.path,
+    /* 该会话不在 agent 自己的索引里（codex 的 dim 派发会话就是这种情况），
+       改名时会往索引追加条目而不是改现有条目。 */
+    indexMissing: Boolean(s.indexMissing),
   };
 }
 

@@ -74,6 +74,27 @@ function makeCodex(home, { id, threadName, createdAt, updatedAt = createdAt, use
   return indexFile;
 }
 
+/**
+ * codex rollout fixture（**不写索引**）：复现 dim 派发会话的真实处境——
+ * dim 启动 codex 的方式不写 session_index.jsonl，所以这些会话只在 rollout 树里。
+ */
+function makeCodexRolloutOnly(home, { id, createdAt, userText, originator = 'dimcode', cwd = '/tmp/proj' }) {
+  const d = new Date(createdAt);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const dir = path.join(home, '.codex', 'sessions', String(d.getFullYear()), p2(d.getMonth() + 1), p2(d.getDate()));
+  const file = path.join(dir, `rollout-${iso(createdAt).replace(/[:.]/g, '-')}-${id}.jsonl`);
+  const payload = { session_id: id, timestamp: iso(createdAt), cwd };
+  if (originator !== null) payload.originator = originator;
+  const lines = [JSON.stringify({ type: 'session_meta', payload })];
+  if (userText) {
+    lines.push(
+      JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: userText }] } })
+    );
+  }
+  write(file, `${lines.join('\n')}\n`);
+  return file;
+}
+
 /** kimi fixture：session_index.jsonl + 会话目录 state.json。 */
 function makeKimi(home, { id, createdAt, title = '', isCustomTitle = false, lastPrompt = '', archived = false }) {
   const dir = path.join(home, '.kimi-code', 'sessions', 'wd_proj_1', id);
@@ -257,6 +278,74 @@ test('codex：创建时间取 rollout 的 session_meta，而不是 updated_at', 
   const codex = res.sessions.find((s) => s.key === 'codex:01a0b7ee-a483-7a70-835b-78b7f93349e7');
   assert.equal(codex.createdAt, iso(T0));
   assert.equal(codex.titleSource, 'session');
+});
+
+test('codex：索引里没有的 dim 派发会话 → 从 rollout 树补回并关联到 dim 任务', () => {
+  const home = mkHome();
+  const ts = Date.parse('2026-09-21T06:17:45.226Z');
+  const prompt = '实现 Linear GUO-134：左缘裁切原子提交，这段描述是独特的。';
+  const dimDb = makeDimDb(home, [{ ts, agentType: 'codex', title: '实现 GUO-134 左缘裁切原子提交', prompt }]);
+  const id = '01a0c29d-18c6-79b1-a71f-fdf368a108db';
+  /* 只建 rollout、不写索引 —— dim 派发的 codex 会话就是这样（本机 31/31 都不在索引里） */
+  makeCodexRolloutOnly(home, { id, createdAt: ts + 5354, userText: prompt });
+
+  const res = listExternalSessions({ home, dbPath: dimDb });
+  const s = res.sessions.find((x) => x.sessionId === id);
+  assert.ok(s, '索引里没有的 dim 派发会话也必须出现在列表里');
+  assert.equal(s.source, 'dim');
+  assert.equal(s.dimTask.taskTitle, '实现 GUO-134 左缘裁切原子提交');
+  assert.equal(s.indexMissing, true);
+  assert.equal(s.title, '实现 GUO-134 左缘裁切原子提交');
+  assert.ok(res.warnings.some((w) => w.code === 'codex_index_gap'), '应显式告警索引缺口');
+});
+
+test('codex：用户自建会话（originator 非 dimcode）不会被当成 dim 派发补进来', () => {
+  const home = mkHome();
+  const ts = Date.parse('2026-09-21T06:17:45.226Z');
+  const dimDb = makeDimDb(home, []);
+  makeCodexRolloutOnly(home, { id: '01a0ffff-0000-7000-8000-000000000001', createdAt: ts, originator: 'Codex Desktop', userText: '手动开的会话' });
+  const res = listExternalSessions({ home, dbPath: dimDb });
+  assert.equal(res.sessions.filter((s) => s.agentType === 'codex').length, 0, '没有 dim 任务时不应凭空补会话');
+});
+
+test('codex：索引里没有的会话 → rename 追加索引条目（而不是报「已是目标名称」）', () => {
+  const home = mkHome();
+  const ts = Date.parse('2026-09-21T06:17:45.226Z');
+  const prompt = '实现 Linear GUO-134：左缘裁切原子提交，这段描述是独特的。';
+  const dimDb = makeDimDb(home, [{ ts, agentType: 'codex', title: '实现 GUO-134 左缘裁切原子提交', prompt }]);
+  const id = '01a0c29d-18c6-79b1-a71f-fdf368a108db';
+  makeCodexRolloutOnly(home, { id, createdAt: ts + 5354, userText: prompt });
+  const key = `codex:${id}`;
+  /* 真实处境：索引文件存在（codex 一直在写），只是里面没有这条会话 */
+  const indexFile = path.join(home, '.codex', 'session_index.jsonl');
+  write(indexFile, '');
+
+  const dry = renameExternalSessions({ home, dbPath: dimDb, keys: [key] });
+  assert.equal(dry.results[0].status, 'planned', 'dry-run 应显示待改名，而不是 skipped');
+
+  const applied = renameExternalSessions({ home, dbPath: dimDb, keys: [key], apply: true });
+  assert.equal(applied.results[0].status, 'renamed');
+  assert.equal(applied.results[0].appended, true);
+
+  const lines = fs
+    .readFileSync(indexFile, 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  const added = lines.find((l) => l.id === id);
+  assert.ok(added, '索引里应追加该会话的条目');
+  assert.match(added.thread_name, /GUO-134/);
+  assert.ok(typeof added.updated_at === 'string' && added.updated_at.length > 0);
+
+  /* 再跑一次：这次条目已存在，应该是 skipped（理由才真的成立） */
+  const again = renameExternalSessions({ home, dbPath: dimDb, keys: [key], apply: true });
+  assert.equal(again.results[0].status, 'skipped');
+
+  /* 追加可回滚 */
+  const restored = restoreBackups({ home, apply: true });
+  assert.equal(restored.summary.restored, 1);
+  const after = fs.readFileSync(indexFile, 'utf8');
+  assert.ok(!after.includes(id), '回滚后索引里不应再有追加的条目');
 });
 
 test('自定义标题（kimi isCustomTitle）被标记出来', () => {

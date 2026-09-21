@@ -134,6 +134,8 @@ If you want the agents' own pickers cleaned up too, the plugin writes the unifie
 | OpenCode | `~/.local/share/opencode/opencode.db` → `session.title` | ✅ |
 | ZCode | `~/.zcode/cli/db/db.sqlite` → `session.title` + `title_source: 'custom'` | ✅ |
 
+One Codex caveat: dim's own way of launching Codex does **not** write `session_index.jsonl`, so a delegated Codex session is missing from that index (31 of 31 on this machine). The session list therefore also reads the rollout tree to bring delegated sessions back, and writing a name back **appends** an index entry for them instead of editing an existing one — that is what makes the unified name show up in Codex's own picker.
+
 Rename safety: manual renames must name the sessions explicitly (there is no "rename everything"); the default is a preview, writing requires an explicit confirm; a backup lands in `~/.dimcode/ea-extend-backups/<timestamp>/`; and sessions whose title you set yourself are skipped unless you force it. Prefer renaming while the agent's CLI is idle — Codex rewrites its index and Grok takes a `summary.json.lock`. For OpenCode (whose database can be gigabytes) only the affected row is backed up. Pass `sourcePrefix: false` if you don't want the `[dim]` / `[手动]` marker in the written name. Every write is backed up to `~/.dimcode/ea-extend-backups/<timestamp>/`, and `dim-external-agents-extend restore` rolls the last one back byte-for-byte.
 
 ### CLI
