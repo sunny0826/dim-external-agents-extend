@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2026-09-21
+
+Two Codex matching defects found by reading the real runs on this machine: a task whose rollout file was sitting on disk was reported as "the session may have been cleaned up", and the matcher could pick a session you started yourself over the one dim delegated.
+
+### Fixed
+
+- **Codex runs reported "no readable log" while the rollout file was right there** — a task is linked to its rollout file by timestamp, and the Codex window was 5s. That constant came from warm starts; a cold Codex start (process spawn, auth, project scan) takes longer, and two real tasks on this machine landed at Δ=5.354s and Δ=5.447s — a few tenths of a second outside the window — so the panel said the session "may have been cleaned up" and `read_agent_run` returned `no_log`. Measured across 30 Codex tasks, deltas are bimodal: most are under 0.5s, but a batch sits at 2.0–4.2s, so 5s was already failing on the edge rather than on rare outliers. The Codex window is now 20s (matching Cursor), which covers the slowest observed cold start with 3.7× headroom; all 30 tasks on this machine now resolve
+- **The same 5s constant lived in two independent tables** — `mapping.js` (log reading) and `sessions.js` (session list → dim task linking) each carried their own copy, so the affected tasks were also failing to link to their dim task in the session list and were treated as hand-started sessions. Both sides now read the same table (Codex 20s; Kimi 5s; Cursor 20s; Grok / OpenCode / ZCode 30s), and a test asserts the two tables stay identical so they cannot drift apart again
+- **Codex could match your own session instead of the delegated one** — `~/.codex/sessions` is a shared tree: it holds the sessions dim delegates *and* the ones you start yourself in Codex Desktop or the codex-tui (10 of the 61 rollout files from the last three days). The matcher scanned all of them and ranked by timestamp alone, so your own session could win if it happened to be closer — a risk that grew with the widened window. Rollout files carry `session_meta.originator`, which is `dimcode` for every session dim delegates (28/28 measured), so candidates are now preferred by that marker. If a window contains no `dimcode` candidate at all, the matcher falls back to the timestamp-only pool and attaches a `codex_originator_unknown` warning, so a future change to that field degrades loudly instead of silently
+
+### Changed
+
+- **README FAQ** — "the task says no readable log" now lists the third case (the session file exists but its creation time falls outside the per-agent matching window) in both languages, instead of only "cleaned up" and "not supported yet"
+
 ## [0.0.3] - 2026-09-20
 
 Everything since v0.0.2, released together: per-agent execution logs for Grok / OpenCode / Pi, unified external-session names with optional write-back, a redesigned panel, and pi's icon in the task list.

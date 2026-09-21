@@ -1,6 +1,6 @@
 {
   "name": "external-agents-extend",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "View execution logs of external agents (kimi / cursor / codex / grok / opencode / pi / zcode) launched by dim, and unify their session names.",
   "interface": {
     "displayName": "External Agents Extend",
