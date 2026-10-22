@@ -8,7 +8,7 @@ Guidance for AI agents working in this repository.
 
 ## Environment: always use mise
 
-- The toolchain is pinned in `mise.toml` (Node 24.18.0) — the single source of truth for the dev runtime.
+- The toolchain is pinned in `mise.toml` (Node 24.22.1) — the single source of truth for the dev runtime.
 - Run commands through mise, e.g. `mise exec -- node --test` and `mise exec -- node scripts/validate.js`.
 - Do not introduce other runtime version sources (nvm, Homebrew node, global npm installs).
 
